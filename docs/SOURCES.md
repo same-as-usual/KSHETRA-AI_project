@@ -19,5 +19,8 @@
 - PMUY official portal: https://www.pmuy.gov.in/
 - SBM-G portal: https://swachhbharatmission.ddws.gov.in/
 - PM-JAY portal: https://pmjay.gov.in/
+- Jal Jeevan Mission: https://jaljeevanmission.gov.in/ . NFHS improved-water access is not a functional tap-connection count.
+- POSHAN Abhiyaan: https://poshanabhiyaan.gov.in/ . NFHS stunting is an outcome indicator, not program coverage.
+- Samagra Shiksha, Ministry of Education: https://samagra.education.gov.in/about.html . NFHS female ever-attended-school is an attainment proxy, not current enrollment or scheme coverage.
 
 These pages describe programme information; the current project does not ingest beneficiary-level or district administrative coverage. NFHS fields in SchemeGap are only broad service coverage proxies.

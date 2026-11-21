@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -218,8 +219,34 @@ with tabs[1]:
                 fig = px.line(long, x="observed_at", y="value", color="signal", markers=True,
                               title="Observed environmental anomalies over time",
                               labels={"observed_at": "Observation date", "value": "Source value (%)", "signal": "Signal"})
-                fig.update_layout(height=380)
+                fig.update_layout(height=380, hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True)
+            latest = tr.sort_values("observed_at").iloc[-1]
+            radar_fields = [
+                ("Rainfall stress", "score_rainfall"),
+                ("Vegetation decline", "score_vegetation"),
+                ("Night-light decline", "score_night_lights"),
+            ]
+            radar_labels = [label for label, field in radar_fields if field in latest.index and pd.notna(latest[field])]
+            radar_values = [float(latest[field]) for label, field in radar_fields if field in latest.index and pd.notna(latest[field])]
+            if len(radar_values) >= 3:
+                radar = go.Figure(go.Scatterpolar(
+                    r=radar_values + [radar_values[0]], theta=radar_labels + [radar_labels[0]],
+                    fill="toself", line={"color": "#ad3f24", "width": 2},
+                    fillcolor="rgba(173,63,36,0.18)", name="Normalized stress score",
+                ))
+                radar.update_layout(
+                    title=f"Latest environmental stress components · {latest['observed_at'].date()}",
+                    polar={"radialaxis": {"visible": True, "range": [0, 100], "ticksuffix": "%"}},
+                    showlegend=False, height=380, margin={"l": 30, "r": 30, "t": 55, "b": 20},
+                )
+                st.plotly_chart(radar, use_container_width=True)
+                st.caption("Radar axes are transparent rescalings of rainfall deficit (40% scale), vegetation decline (30%), and VIIRS decline (30%). Fire detections remain separate.")
+            elif radar_values:
+                radar_bar = pd.DataFrame({"Signal": radar_labels, "Normalized stress score": radar_values})
+                st.plotly_chart(px.bar(radar_bar, x="Normalized stress score", y="Signal", orientation="h",
+                                       range_x=[0, 100], title="Available environmental stress components"), use_container_width=True)
+                st.caption("Risk radar requires all three anomaly baselines; only available metrics are shown here.")
             st.dataframe(env.sort_values(["observed_at", "environmental_score"], ascending=[False, False]),
                          use_container_width=True, hide_index=True)
             st.caption("Scores identify environmental stress only. They are not poverty labels and do not trigger automatic action.")
@@ -265,6 +292,18 @@ with tabs[2]:
     c.metric("Confidence", str(row["confidence"]), delta_color="off")
     d.metric("Missing indicators", int(row["indicators_missing"]))
     st.markdown(f"**District:** {row['district_raw']}, {row['state_raw']} · **Main domain:** {row['primary_domain']} · **NFHS-5 survey households:** {int(row['survey_households']) if pd.notna(row['survey_households']) else 'n/a'}")
+    completeness = max(0.0, 100.0 * (len(INDICATORS) - int(row["indicators_missing"])) / len(INDICATORS))
+    gauge = go.Figure(go.Indicator(
+        mode="gauge+number", value=completeness, number={"suffix": "%", "valueformat": ".0f"},
+        title={"text": "Indicator completeness<br><span style='font-size:0.75em'>not predictive confidence</span>"},
+        gauge={"axis": {"range": [0, 100], "ticksuffix": "%"}, "bar": {"color": "#d88a38"},
+               "steps": [{"range": [0, 70], "color": "#f2e5df"}, {"range": [70, 90], "color": "#efe7ce"},
+                         {"range": [90, 100], "color": "#dcebe3"}],
+               "threshold": {"line": {"color": "#344054", "width": 2}, "thickness": 0.75, "value": completeness}},
+    ))
+    gauge.update_layout(height=225, margin={"l": 30, "r": 30, "t": 55, "b": 15, "pad": 3})
+    st.plotly_chart(gauge, use_container_width=True)
+    st.caption(f"This gauge is the share of the {len(INDICATORS)} NFHS indicators available for this row. The High/Medium/Low badge also considers survey sample size.")
     contributions = pd.DataFrame({
         "Indicator": [INDICATOR_LABELS[k] for k in INDICATORS],
         "Contribution": [float(row[f"contrib_{k}"]) for k in INDICATORS],
@@ -317,20 +356,31 @@ with tabs[3]:
     district_gaps = scheme_gap_frame(pd.DataFrame([planner_row]))
     budget_crore = st.number_input("Hypothetical district budget (₹ crore)", min_value=0.0, value=1.0, step=0.1, key="budget_crore")
     plan = plan_budget(district_gaps, budget_crore * 1e7)
+    scenario_share = st.slider("Illustrative share of each service gap targeted", min_value=0, max_value=100, value=20, step=5, key="scenario_gap_share")
     if plan.empty:
-        st.info("No scheme-related NFHS proxy values are available for this district.")
+        st.info("No service-access proxy values are available for this district.")
     else:
         plan_view = plan[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "budget_share_pct", "allocation_inr", "interpretation"]].copy()
+        plan_view["scenario_coverage_pct"] = (plan_view["coverage_proxy_pct"] + plan_view["gap_proxy_pct"] * scenario_share / 100).clip(upper=100)
         plan_view["allocation"] = plan_view["allocation_inr"].map(money_inr)
         fig_plan = px.bar(plan_view, x="allocation_inr", y="scheme", orientation="h", color="gap_proxy_pct",
                           hover_data={"budget_share_pct": ":.1f", "gap_proxy_pct": ":.1f", "coverage_proxy_pct": ":.1f", "allocation_inr": False},
                           labels={"allocation_inr": "Scenario allocation (₹)", "scheme": "Programme area", "gap_proxy_pct": "Gap proxy (%)"},
-                          title="Budget shares driven by observed NFHS-5 proxy gaps",
+                          title="Scenario budget shares · weighted by service-access gap proxies",
                           color_continuous_scale=["#e4bb54", "#ad3f24"])
         fig_plan.update_layout(height=360)
         st.plotly_chart(fig_plan, use_container_width=True)
-        st.dataframe(plan_view[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "budget_share_pct", "allocation", "interpretation"]].round(1), use_container_width=True, hide_index=True)
-        st.caption("No household reach or before/after impact is shown because district eligible-population denominators and unit costs are not available in the supplied datasets.")
+        before_after = pd.concat([
+            plan_view[["scheme", "coverage_proxy_pct"]].rename(columns={"coverage_proxy_pct": "Proxy coverage (%)"}).assign(Scenario="Observed NFHS-5 proxy"),
+            plan_view[["scheme", "scenario_coverage_pct"]].rename(columns={"scenario_coverage_pct": "Proxy coverage (%)"}).assign(Scenario=f"Illustrative target (+{scenario_share}% of gap)"),
+        ], ignore_index=True)
+        fig_scenario = px.bar(before_after, x="scheme", y="Proxy coverage (%)", color="Scenario", barmode="group",
+                              range_y=[0, 100], title="Before / after planning scenario (assumed target, not a forecast)",
+                              color_discrete_sequence=["#587f78", "#d88a38"])
+        fig_scenario.update_layout(height=370, xaxis_tickangle=-18)
+        st.plotly_chart(fig_scenario, use_container_width=True)
+        st.dataframe(plan_view[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "scenario_coverage_pct", "budget_share_pct", "allocation", "interpretation"]].round(1), use_container_width=True, hide_index=True)
+        st.caption(f"The after value is a user-selected scenario target: observed proxy coverage plus {scenario_share}% of the observed gap. It is not a predicted or causal impact and is not linked to the entered budget. Budget shares cover service-access proxies only; no eligible-population denominator or unit cost was provided.")
 
 # MODULE 5 — SchemeGap
 with tabs[4]:
@@ -339,27 +389,42 @@ with tabs[4]:
     gaps_all = scheme_gap_frame(filtered)
     scheme_choice = st.selectbox("Programme proxy", [s.key for s in SCHEME_PROXIES],
                                  format_func=lambda key: next(s.name for s in SCHEME_PROXIES if s.key == key), key="scheme_choice")
-    sg = gaps_all[gaps_all.scheme_key == scheme_choice].dropna(subset=["coverage_proxy_pct"])
+    sg = gaps_all[gaps_all.scheme_key == scheme_choice].dropna(subset=["gap_proxy_pct"])
     if sg.empty:
-        st.info("No coverage-proxy observations available for this selection.")
+        st.info("No proxy observations available for this selection.")
     else:
         definition = next(s for s in SCHEME_PROXIES if s.key == scheme_choice)
         c1, c2, c3 = st.columns(3)
         c1.metric("Districts with proxy", f"{len(sg):,}")
-        c2.metric("Mean coverage proxy", f"{sg.coverage_proxy_pct.mean():.1f}%")
-        c3.metric("Mean uncovered proxy", f"{sg.gap_proxy_pct.mean():.1f}%")
-        st.markdown(f"**Interpretation:** {definition.interpretation}  \n**Official scheme information:** [{definition.name}]({definition.url})")
+        if definition.proxy_kind == "Service-access proxy":
+            c2.metric("Mean service-access proxy", f"{sg.coverage_proxy_pct.mean():.1f}%")
+            c3.metric("Mean uncovered proxy", f"{sg.gap_proxy_pct.mean():.1f}%")
+        else:
+            c2.metric("Mean outcome proxy", f"{sg.outcome_proxy_pct.mean():.1f}%")
+            c3.metric("Mean burden / access-gap proxy", f"{sg.gap_proxy_pct.mean():.1f}%")
+        st.markdown(f"**Proxy type:** {definition.proxy_kind}")
+        st.write(f"**Interpretation:** {definition.interpretation}")
+        st.markdown(f"**Official scheme information:** [{definition.name}]({definition.url})")
+        journey = st.columns(4)
+        journey_steps = [
+            ("1 · NFHS proxy", "Screen district-level access or outcome signal"),
+            ("2 · Check MIS", "Compare against current programme records"),
+            ("3 · Field verify", "Confirm the local context and data vintage"),
+            ("4 · Authorized review", "Decide through the responsible agency; no automatic eligibility"),
+        ]
+        for card, (heading, detail) in zip(journey, journey_steps):
+            card.markdown(f"**{heading}**" + "\n\n" + detail)
         gap_rank = sg.sort_values("gap_proxy_pct", ascending=False).head(30)
         fig_gap = px.bar(gap_rank, x="gap_proxy_pct", y="district_raw", color="state_raw", orientation="h",
-                         hover_data={"coverage_proxy_pct": ":.1f", "survey_households": True},
-                         labels={"gap_proxy_pct": "Uncovered service proxy (%)", "district_raw": "District", "state_raw": "State"},
-                         title="Largest service-gap proxies in the filtered districts")
+                         hover_data={"proxy_measure_pct": ":.1f", "survey_households": True},
+                         labels={"gap_proxy_pct": definition.gap_label + " (%)", "district_raw": "District", "state_raw": "State"},
+                         title=f"Highest {definition.gap_label.lower()} values in filtered districts")
         fig_gap.update_layout(height=680, yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(fig_gap, use_container_width=True)
         st.dataframe(sg.sort_values("gap_proxy_pct", ascending=False)[
-            ["state_raw", "district_raw", "coverage_proxy_pct", "gap_proxy_pct", "survey_households", "survey_period", "interpretation"]
+            ["state_raw", "district_raw", "proxy_kind", "proxy_measure_label", "proxy_measure_pct", "gap_label", "gap_proxy_pct", "survey_households", "survey_period", "interpretation"]
         ].round(1), use_container_width=True, hide_index=True)
-    st.caption("NFHS-5 reference period is 2019–21. Update with current administrative coverage before operational planning.")
+    st.caption("NFHS-5 reference period is 2019–21. Proxies do not establish scheme coverage or eligibility. Update with current administrative data before operational planning.")
 
 # MODULE 6 — PRAGATI Assistant
 with tabs[5]:

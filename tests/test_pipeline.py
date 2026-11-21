@@ -126,13 +126,17 @@ def test_scheme_gap_is_labeled_as_proxy_and_budget_sums():
     profile = pd.DataFrame([{
         "state_raw": "State A", "district_raw": "District A", "state_key": "STATE A", "district_key": "DISTRICT A",
         "clean_cooking_fuel_pct": 40.0, "improved_sanitation_pct": 60.0,
-        "health_insurance_pct": 25.0, "survey_households": 700,
+        "health_insurance_pct": 25.0, "improved_water_pct": 70.0,
+        "stunted_pct": 30.0, "female_school_pct": 80.0, "survey_households": 700,
     }])
     gaps = scheme_gap_frame(profile)
-    assert len(gaps) == 3
+    assert len(gaps) == 6
     assert set(gaps["survey_period"]) == {"NFHS-5, 2019-21"}
     assert gaps["gap_proxy_pct"].between(0, 100).all()
+    assert gaps["scheme_key"].nunique() == 6
     plan = plan_budget(gaps, 10_000_000)
+    assert len(plan) == 4  # only comparable service-access proxies enter budget shares
+    assert plan["planner_eligible"].all()
     assert plan["allocation_inr"].sum() == pytest.approx(10_000_000)
     assert plan["interpretation"].str.contains("not").all()
 

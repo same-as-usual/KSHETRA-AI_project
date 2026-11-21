@@ -60,10 +60,10 @@ def retrieve_evidence(question: str, profiles: pd.DataFrame, district: str | Non
         gaps = scheme_gap_frame(pd.DataFrame([row]))
         for _, gap in gaps.dropna(subset=["gap_proxy_pct"]).iterrows():
             evidence.append({
-                "source": f"NFHS-5 (2019-21) scheme service-coverage proxy; {gap['scheme']}",
+                "source": f"NFHS-5 (2019-21) {gap['proxy_kind']}; {gap['scheme']}",
                 "district": f"{row.get('district_raw','')} / {row.get('state_raw','')}",
-                "fact": (f"coverage proxy={gap['coverage_proxy_pct']:.1f}%; "
-                         f"uncovered proxy={gap['gap_proxy_pct']:.1f}%; not scheme enrollment"),
+                "fact": (f"{gap['proxy_measure_label']}={gap['proxy_measure_pct']:.1f}%; "
+                         f"{gap['gap_label']}={gap['gap_proxy_pct']:.1f}%; not scheme enrollment"),
             })
         return evidence[:top_k]
 
@@ -117,8 +117,8 @@ def answer_query(question: str, profiles: pd.DataFrame, district: str | None = N
                       f"मुख्य क्षेत्र: {row['primary_domain']}. सबसे बड़े संकेतक योगदान: {row['top_drivers']}. "
                       "ये संकेत survey indicators से बने हैं; स्थानीय सत्यापन आवश्यक है।")
         elif intent == "scheme":
-            answer = (f"{name} के लिए उपलब्ध NFHS-5 सेवा-कवरेज proxies नीचे हैं। ये PMUY/SBM-G/PM-JAY की "
-                      "लाभार्थी संख्या या पात्रता नहीं बताते। किसी योजना निर्णय से पहले प्रशासनिक रिकॉर्ड और स्थानीय सत्यापन देखें।")
+            answer = (f"{name} के लिए NFHS-5 सेवा-पहुँच और outcome proxies नीचे हैं। ये किसी योजना की लाभार्थी संख्या "
+                      "या पात्रता नहीं बताते। निर्णय से पहले प्रशासनिक रिकॉर्ड और स्थानीय सत्यापन देखें।")
         elif intent == "mpi":
             if pd.notna(row.get("mpi_hcr_pct", float("nan"))):
                 answer = (f"{name} के संदिग्ध स्रोत वाले Census-2011 MPI तालिका में HCR {row['mpi_hcr_pct']:.1f}% है "
@@ -134,8 +134,8 @@ def answer_query(question: str, profiles: pd.DataFrame, district: str | None = N
                       f"The largest domain is {row['primary_domain']}; top indicator drivers are {row['top_drivers']}. "
                       "These are survey-based signals, not proof of poverty; field verification is required.")
         elif intent == "scheme":
-            answer = (f"Available NFHS-5 service-coverage proxies for {name} are listed below. They do not measure PMUY, SBM-G, "
-                      "or PM-JAY enrollment or eligibility. Check administrative scheme records and verify locally before acting.")
+            answer = (f"Available NFHS-5 service-access and outcome proxies for {name} are listed below. They do not measure scheme enrollment "
+                      "or eligibility. Check current administrative records and verify locally before acting.")
         elif intent == "mpi":
             if pd.notna(row.get("mpi_hcr_pct", float("nan"))):
                 answer = (f"The supplied Census-2011 MPI candidate table reports an HCR of {row['mpi_hcr_pct']:.1f}% for {name} "

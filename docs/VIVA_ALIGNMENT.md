@@ -7,8 +7,8 @@ This note makes implementation boundaries explicit so a demo does not overclaim.
 - **Atlas:** an interactive choropleth can be shown when a GeoJSON FeatureCollection is uploaded. It performs exact normalized state/district matching and leaves unmatched polygons out. The supplied DataMeet boundary source warns that some shapes/names are outdated or shifted; see `data/geo/README.md`.
 - **Risk & Early Warning:** a rule-based score runs only on dated district observations the user uploads. It is not a forecast and no satellite data ships in the current build.
 - **Explainability:** the composite is a transparent equal-domain index. Driver contributions exactly sum to the composite. Confidence is a data-completeness/sample-size flag, not calibrated model uncertainty.
-- **Action Planner:** the budget splitter allocates scenario shares according to service-gap proxies. It is not an optimized plan or impact estimate.
-- **SchemeGap:** NFHS outcome indicators are displayed as service-access proxies. They do not prove eligibility or measure scheme enrollment.
+- **Action Planner:** the budget splitter allocates scenario shares according to four service-access proxies. Its before/after bar is a user-selected target assumption, not an optimized plan or impact estimate.
+- **SchemeGap:** six NFHS-5 access/outcome indicators are mapped to programme areas. They do not prove eligibility or measure scheme enrollment; only four comparable service-access gaps are used in budget shares.
 - **PRAGATI:** local retrieval plus constrained answer templates returns evidence cards. There is no live LLM, API key, or external generation.
 - **Human verification:** the app can save a district-level review to a local SQLite audit log. It is not an authenticated case-management system.
 
