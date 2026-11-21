@@ -206,3 +206,53 @@ def test_verification_log_is_append_only_and_local(tmp_path):
     assert len(rows) == 1
     assert rows.loc[0, "district"] == "District A"
     assert rows.loc[0, "status"] == "Verified concern"
+
+
+def test_model_supports_auto_and_hist_gb_backend():
+    from kshetra.model import available_backends, build_model, resolve_backend
+    backends = available_backends()
+    assert "hist_gb" in backends
+    chosen = resolve_backend("auto")
+    assert chosen in {"xgboost", "hist_gb"}
+    m = build_model(backend="hist_gb")
+    assert hasattr(m, "fit") and hasattr(m, "predict")
+
+
+def test_image_change_features_computes_exg_and_heatmap():
+    from kshetra.environment import compute_image_change_features
+    before = np.zeros((20, 20, 3), dtype=np.uint8)
+    before[:, :, 1] = 200  # high green
+    after = np.zeros((20, 20, 3), dtype=np.uint8)
+    after[:, :, 0] = 200   # high red (vegetation loss)
+    res = compute_image_change_features(before, after)
+    assert res["delta_exg_pct_points"] < -20
+    assert res["changed_area_pct"] == pytest.approx(100.0)
+    assert res["change_heatmap_rgb"].shape == (20, 20, 3)
+
+
+def test_attach_approximate_coordinates_covers_states():
+    from kshetra.geo import attach_approximate_coordinates
+    df = pd.DataFrame([
+        {"state_raw": "Bihar", "district_raw": "Araria", "state_key": "BIHAR", "district_key": "ARARIA"},
+        {"state_raw": "Bihar", "district_raw": "Patna", "state_key": "BIHAR", "district_key": "PATNA"},
+    ])
+    out = attach_approximate_coordinates(df)
+    assert out["approx_lat"].notna().all() and out["approx_lon"].notna().all()
+    assert out.loc[0, "approx_lat"] != out.loc[1, "approx_lat"]
+
+
+def test_pragati_tfidf_vector_search_and_roman_hindi():
+    from kshetra.index import compute_index
+    from kshetra.pragati import answer_query, vector_search_corpus
+    base = _synthetic_frame(n=25, seed=11)
+    base["state_raw"] = ["Bihar"] * 25
+    base["district_raw"] = [f"District {i}" for i in range(25)]
+    base["state_key"] = ["BIHAR"] * 25
+    base["district_key"] = [f"DISTRICT {i}" for i in range(25)]
+    base["mpi_hcr_pct"] = np.nan
+    profiles = compute_index(base, n_clusters=3)
+    hits = vector_search_corpus("clean cooking fuel PMUY sanitation", profiles, top_k=4)
+    assert hits and all("similarity" in h for h in hits)
+    hi_reply = answer_query("District 0 kyon flagged hai?", profiles, district="District 0", state="Bihar")
+    assert "District 0" in hi_reply["answer"]
+    assert hi_reply["intent"] == "drivers"

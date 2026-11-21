@@ -8,12 +8,12 @@
 
 | Module | What is implemented | Data / limits |
 |---|---|---|
-| **1. Poverty Intelligence Atlas** | Interactive district choropleth, filters, state summaries and ranked table. | Requires a GeoJSON boundary file. Exact name matches only; boundary vintage and unmatched districts are disclosed. |
-| **2. Risk & Early Warning** | Import validation, rule-based anomaly screening, dated trend display, optional before/after image comparison. | No environmental data is bundled or fetched automatically. Upload attributed observations from CHIRPS, VIIRS, Sentinel-2 and/or FIRMS; no alerts appear without uploaded data. |
+| **1. Poverty Intelligence Atlas** | Interactive district choropleth (with GeoJSON) and default state-anchored spatial bubble map for all 707 districts, plus state summaries and ranked table. | Polygon choropleth requires a GeoJSON boundary file (exact name matches only). When no GeoJSON is uploaded, the map displays deterministic state-anchored markers. |
+| **2. Risk & Early Warning** | Import validation, rule-based anomaly screening, risk radar, dated trend display, and before/after satellite image computer-vision change metrics (ΔExG, ΔNGRDI, pixel diff, change heatmap). | No environmental data is bundled or fetched automatically. Upload attributed observations from CHIRPS, VIIRS, Sentinel-2 and/or FIRMS; no alerts appear without uploaded data. |
 | **3. Explainable AI Insights** | Composite percentile, risk tier, indicator contributions, domain scores, confidence flag, MPI cross-check, aggregate human review form. | Confidence describes missingness/sample size, not calibrated model certainty. Local SQLite log; no user authentication or multi-user controls. |
 | **4. Action Planner** | User-entered hypothetical budget split in proportion to four service-access proxies; includes a user-assumed before/after target visualization. | Not a cost optimizer, beneficiary count, entitlement decision or impact forecast. Unit costs and eligible-population denominators are absent. |
 | **5. SchemeGap Intelligence** | Six NFHS-5 service/outcome proxies (clean fuel, sanitation, health-insurance, improved water, child stunting and female school attainment) with official scheme links. | These are broad service/outcome proxies, not scheme enrollment or eligibility. Only four service-access proxies enter the budget-share scenario; nutrition/education outcomes are context only. Administrative scheme-coverage data is still needed. |
-| **6. PRAGATI AI Assistant** | Local district retrieval with evidence cards and constrained answer templates; limited common Hindi intents. | No external LLM, API key or free-form generated advice is connected. |
+| **6. PRAGATI AI Assistant** | TF-IDF vector RAG retrieval (cosine similarity) over district profiles & scheme proxies, contextual peer locator map, district KPI cards, and English/Hindi grounded synthesis templates. | No external LLM API key is required; synthesis uses deterministic templates to prevent hallucinated statistics or eligibility claims. |
 
 ## Verified data currently in the project
 
@@ -31,7 +31,7 @@ See `docs/SOURCES.md` and `docs/DATA_QUALITY.md` for source links, caveats, and 
 - **Explainable composite:** 11 NFHS indicators are direction-normalized and z-scored, averaged into living-standards, education, and health/nutrition domains, then equally averaged. Indicator contributions sum to the composite.
 - **Screening tiers:** percentile-based quartiles (`Very high`, `High`, `Moderate`, `Lower`); these are relative ranks within this dataset, not policy thresholds.
 - **Confidence flag:** derived from indicator missingness and NFHS sample size; it is not predictive confidence.
-- **Cross-check model:** scikit-learn `HistGradientBoostingRegressor`, predicting the supplied MPI HCR from NFHS-5 indicators. Current five-fold CV: R² 0.84, MAE 5.1 percentage points on 629 districts. MPI provenance is undocumented, so this is not independent validation.
+- **Cross-check model:** `xgboost.XGBRegressor` (when `xgboost` is installed, with automatic fallback to scikit-learn `HistGradientBoostingRegressor`), predicting the supplied MPI HCR from NFHS-5 indicators. Current five-fold CV: R² 0.84, MAE 5.1 percentage points on 629 districts. MPI provenance is undocumented, so this is not independent validation.
 - **Clusters:** K-Means descriptive profiles on the three domain scores.
 
 The presentation mentions XGBoost, CNN/ViT and temporal models. Those are **not** implemented in this build. The current model is not a livelihood-risk forecast. See `docs/VIVA_ALIGNMENT.md` for a careful demo talk track.

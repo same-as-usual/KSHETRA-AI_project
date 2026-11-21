@@ -20,6 +20,9 @@
     ]
   },
   "model": {
+    "model_backend": "hist_gb",
+    "model_name": "Scikit-Learn HistGradientBoostingRegressor",
+    "xgboost_available": false,
     "n_districts_with_mpi": 629,
     "cv_folds": 5,
     "cv_r2": 0.844,

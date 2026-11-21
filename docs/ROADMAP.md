@@ -4,13 +4,13 @@ Aligned to the six modules in the KSHETRA-AI panel presentation. â€œImplementedâ
 
 | Presentation module / stage | Status | What works / what remains |
 |---|---|---|
-| 1. Poverty Intelligence Atlas | Implemented with optional boundary file | District filtering, ranking and interactive GeoJSON choropleth. Upload a FeatureCollection with state/district properties; the app exact-matches and excludes unmatched polygons. No boundary asset is bundled because available public boundaries have known vintage/quality caveats. |
+| 1. Poverty Intelligence Atlas | Implemented with default spatial bubble view + optional GeoJSON choropleth | Displays a state-anchored spatial bubble map for all 707 districts out of the box, and upgrades to a polygon choropleth when a GeoJSON FeatureCollection is uploaded or placed at `data/geo/india_districts.geojson`. |
 | 2. Risk & Early Warning | Input/alert engine implemented; no signals bundled | Validates sourced dated district aggregates and calculates transparent anomaly screening scores. No CHIRPS/VIIRS/Sentinel-2/FIRMS measurements are bundled or fetched automatically. |
 | 3. Explainable AI Insights | Implemented | Indicator contributions, domain scores, percentile, data-completeness confidence, external MPI cross-check, and local human-verification log. |
 | 4. Action Planner | Scenario implemented | Allocates a user-entered budget share across four service-access proxies. Includes a user-assumed gap-reduction target chart; it is not a forecast or impact estimate. |
 | 5. SchemeGap Intelligence | Six-proxy view implemented | NFHS-5 clean fuel, sanitation, any-health-insurance, improved-water, stunting, and female school-attainment indicators are mapped to programme areas. They are broad access/outcome proxies, not scheme enrollment or eligibility; only four comparable service-access proxies enter budget shares. Administrative programme data is still needed. |
-| 6. PRAGATI AI Assistant | Local retrieval prototype implemented | Retrieves district facts and proxy evidence; answers with constrained templates in English and limited Hindi common intents. No generative LLM is connected. |
-| XGBoost baseline (PPT slide 7) | Not implemented | Current cross-check uses scikit-learn HistGradientBoostingRegressor. Talk track and README must say so; do not call it XGBoost. |
+| 6. PRAGATI AI Assistant | TF-IDF vector RAG + contextual map/cards implemented | Uses character/word n-gram TF-IDF vector embeddings and cosine similarity over 707 district profiles and 6 scheme proxies, paired with a contextual peer locator map, data cards, and English/Hindi (Devanagari + Romanized) templates. |
+| XGBoost baseline (PPT slide 7) | Implemented (`XGBRegressor` + fallback) | `src/kshetra/model.py` uses `xgboost.XGBRegressor` automatically when `xgboost` is installed in the Python environment, and falls back to `HistGradientBoostingRegressor` when `xgboost` is absent. |
 | K-Means district profiles | Implemented | Descriptive clustering on the 3 NFHS domain scores. |
 | CNN/ViT imagery model, LSTM/Transformer forecast | Not implemented | Do not claim these in a demo. Requires verified imagery/time series and a separate model evaluation. |
 | Scheme-specific administrative coverage | Not implemented | Needed to replace the NFHS service proxies with true SchemeGap analysis. |

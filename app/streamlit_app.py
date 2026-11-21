@@ -19,8 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from kshetra.config import DOMAIN_LABELS, INDICATOR_LABELS, INDICATORS  # noqa: E402
-from kshetra.environment import attach_profile_scores, validate_environmental_signals  # noqa: E402
-from kshetra.geo import match_geojson_to_profiles  # noqa: E402
+import numpy as np
+from kshetra.environment import attach_profile_scores, compute_image_change_features, validate_environmental_signals  # noqa: E402
+from kshetra.geo import attach_approximate_coordinates, match_geojson_to_profiles  # noqa: E402
 from kshetra.pragati import answer_query  # noqa: E402
 from kshetra.schemes import SCHEME_PROXIES, plan_budget, scheme_gap_frame  # noqa: E402
 from kshetra.verification import STATUSES, add_verification, list_verifications  # noqa: E402
@@ -171,7 +172,38 @@ with tabs[0]:
                 except Exception as exc:
                     st.error(f"Could not join GeoJSON to district profiles: {exc}")
         else:
-            st.info("No boundary file is loaded. Upload a GeoJSON FeatureCollection to enable the district choropleth. See data/geo/README.md for the public DataMeet source and its boundary caveats.")
+            st.caption("No district boundary GeoJSON is loaded; displaying a state-anchored spatial bubble map. Upload a GeoJSON FeatureCollection above for polygon choropleth boundaries.")
+            spatial_df = attach_approximate_coordinates(filtered).dropna(subset=["approx_lat", "approx_lon"]).copy()
+            spatial_df["bubble_size"] = spatial_df["composite_percentile"].clip(lower=15.0)
+            fig_bubble = px.scatter_geo(
+                spatial_df,
+                lat="approx_lat",
+                lon="approx_lon",
+                color="composite_percentile",
+                size="bubble_size",
+                size_max=11,
+                hover_name="district_raw",
+                hover_data={
+                    "state_raw": True, "risk_tier": True, "primary_domain": True,
+                    "confidence": True, "composite_percentile": ":.1f",
+                    "approx_lat": False, "approx_lon": False, "bubble_size": False,
+                },
+                color_continuous_scale=[[0, "#4d8b73"], [0.5, "#e4bb54"], [1, "#ad3f24"]],
+                range_color=(0, 100),
+                labels={"composite_percentile": "Deprivation percentile", "state_raw": "State"},
+                title="District deprivation screening · state-anchored spatial view (upload GeoJSON for polygons)",
+            )
+            fig_bubble.update_geos(
+                visible=True, resolution=50, scope="asia",
+                center={"lat": 22.8, "lon": 80.0}, projection_scale=4.2,
+                showcountries=True, countrycolor="#cbd5e1",
+                showland=True, landcolor="#f8f6f0",
+                showocean=True, oceancolor="#eef4f7",
+                lataxis_range=[6.5, 37.5], lonaxis_range=[67.5, 98.0],
+            )
+            fig_bubble.update_layout(height=600, margin={"r": 0, "t": 45, "l": 0, "b": 0})
+            st.plotly_chart(fig_bubble, use_container_width=True)
+            st.caption("Markers are deterministically arranged around state/UT reference centroids so all 707 districts remain inspectable without bundling unverified boundary polygons.")
 
     with right:
         state_means = filtered.groupby("state_raw", as_index=False).agg(
@@ -274,10 +306,17 @@ with tabs[1]:
                 after_img = ImageOps.fit(after_img, size)
                 blend = st.slider("After-image blend", min_value=0, max_value=100, value=50, key="s2_blend") / 100
                 compare = Image.blend(before_img, after_img, blend)
-                x1, x2, x3 = st.columns(3)
+                cv_stats = compute_image_change_features(np.asarray(before_img), np.asarray(after_img))
+                ic1, ic2, ic3, ic4 = st.columns(4)
+                ic1.metric("Greenness index ΔExG", f"{cv_stats['delta_exg_pct_points']:+.2f} pp")
+                ic2.metric("Spectral index ΔNGRDI", f"{cv_stats['delta_ngrdi']:+.4f}")
+                ic3.metric("Mean pixel intensity Δ", f"{cv_stats['mean_pixel_change_pct']:.1f}%")
+                ic4.metric("Changed area fraction", f"{cv_stats['changed_area_pct']:.1f}%")
+                x1, x2, x3, x4 = st.columns(4)
                 x1.image(before_img, caption=f"Before · {before_label or before_file.name}", use_container_width=True)
                 x2.image(after_img, caption=f"After · {after_label or after_file.name}", use_container_width=True)
                 x3.image(compare, caption=f"Blend · after weight {blend:.0%}", use_container_width=True)
+                x4.image(cv_stats["change_heatmap_rgb"], caption="Change heatmap (terracotta = greenness loss, teal = gain)", use_container_width=True)
             except Exception as exc:
                 st.error(f"Could not compare uploaded images: {exc}")
 
@@ -428,14 +467,55 @@ with tabs[4]:
 
 # MODULE 6 — PRAGATI Assistant
 with tabs[5]:
-    st.subheader("PRAGATI · evidence-grounded district assistant")
-    st.caption("Local retrieval over the project’s district profiles and scheme-proxy definitions. No external LLM, API key, or unsupported free-form claims; responses are constrained templates.")
+    st.subheader("PRAGATI · evidence-grounded district assistant (TF-IDF RAG)")
+    st.caption("TF-IDF vector retrieval over the 707 district profiles and 6 programme-proxy definitions paired with grounded English/Hindi synthesis templates. No external API key or hallucinated claims.")
     rag_row = district_picker(filtered, "Context district", "rag_district")
-    st.markdown("Try: **Why is this district flagged?** · **What scheme gaps are visible?** · **What does the MPI cross-check say?**")
+    ctx_left, ctx_right = st.columns([1.15, 1])
+    with ctx_left:
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Screening tier", str(rag_row["risk_tier"]))
+        p2.metric("Deprivation pct", f"{rag_row['composite_percentile']:.0f}th")
+        p3.metric("Main domain", str(rag_row["primary_domain"]))
+        p4.metric("Confidence", str(rag_row["confidence"]))
+        st.markdown(f"**Top indicator drivers:** {rag_row['top_drivers']}")
+        rag_gaps = scheme_gap_frame(pd.DataFrame([rag_row])).dropna(subset=["gap_proxy_pct"])
+        if not rag_gaps.empty:
+            st.dataframe(
+                rag_gaps[["scheme", "proxy_kind", "proxy_measure_pct", "gap_proxy_pct"]].rename(
+                    columns={"scheme": "Programme proxy", "proxy_kind": "Type", "proxy_measure_pct": "Observed (%)", "gap_proxy_pct": "Gap / burden (%)"}
+                ).round(1),
+                use_container_width=True, hide_index=True,
+            )
+    with ctx_right:
+        rag_spatial = attach_approximate_coordinates(
+            profiles[profiles["state_raw"] == rag_row["state_raw"]]
+        ).dropna(subset=["approx_lat", "approx_lon"]).copy()
+        if not rag_spatial.empty:
+            rag_spatial["focus"] = np.where(
+                rag_spatial["district_raw"] == rag_row["district_raw"], "Selected district", "Same-state peer"
+            )
+            rag_spatial["marker_size"] = np.where(rag_spatial["focus"] == "Selected district", 16, 8)
+            fig_ctx = px.scatter_geo(
+                rag_spatial, lat="approx_lat", lon="approx_lon", color="focus", size="marker_size",
+                hover_name="district_raw",
+                hover_data={"composite_percentile": ":.1f", "risk_tier": True, "approx_lat": False, "approx_lon": False, "marker_size": False},
+                color_discrete_map={"Selected district": "#ad3f24", "Same-state peer": "#587f78"},
+                title=f"Contextual locator · {rag_row['district_raw']} & {rag_row['state_raw']} peers",
+            )
+            c_lat = float(rag_spatial.loc[rag_spatial["focus"] == "Selected district", "approx_lat"].iloc[0])
+            c_lon = float(rag_spatial.loc[rag_spatial["focus"] == "Selected district", "approx_lon"].iloc[0])
+            fig_ctx.update_geos(
+                visible=True, scope="asia", center={"lat": c_lat, "lon": c_lon}, projection_scale=11,
+                showcountries=True, countrycolor="#cbd5e1", showland=True, landcolor="#f8f6f0",
+            )
+            fig_ctx.update_layout(height=275, margin={"r": 0, "t": 35, "l": 0, "b": 0}, legend_title_text="")
+            st.plotly_chart(fig_ctx, use_container_width=True)
+
+    st.markdown("Try: **Why is this district flagged?** · **What scheme gaps are visible?** · **What does the MPI cross-check say?** · **यह जिला क्यों चिन्हित है?** · **योजना कवरेज क्या है?**")
     if "pragati_history" not in st.session_state:
         st.session_state["pragati_history"] = []
     with st.form("pragati_chat_form", clear_on_submit=True):
-        prompt = st.text_input("Ask about the selected district", placeholder="Ask about drivers, screening tier, MPI or scheme proxies")
+        prompt = st.text_input("Ask about the selected district (English or Hindi)", placeholder="Ask about drivers, screening tier, MPI, budget scenario, or scheme proxies")
         ask = st.form_submit_button("Ask PRAGATI")
     if ask and prompt.strip():
         response = answer_query(prompt.strip(), profiles, district=str(rag_row["district_raw"]), state=str(rag_row["state_raw"]))
@@ -445,7 +525,7 @@ with tabs[5]:
             st.write(item["question"])
         with st.chat_message("assistant"):
             st.write(item["answer"])
-            with st.expander("Retrieved evidence"):
+            with st.expander("Retrieved evidence & TF-IDF similarity"):
                 if item["evidence"]:
                     st.dataframe(pd.DataFrame(item["evidence"]), use_container_width=True, hide_index=True)
                 else:
@@ -453,11 +533,12 @@ with tabs[5]:
     if st.button("Clear this session's chat", key="clear_pragati"):
         st.session_state["pragati_history"] = []
         st.rerun()
-    st.info("RAG prototype note: retrieval and templated answers are implemented. A multilingual generative model is not connected; Hindi support is limited to templated common intents.")
+    st.info("RAG architecture note: uses character/word n-gram TF-IDF embeddings with cosine-similarity ranking over the verified district corpus and constrained English/Hindi answer templates to prevent statistical hallucination.")
 
 # Shared technical notes, not a seventh module.
 with st.expander("Model check and data provenance"):
     model = metrics.get("model", {})
-    st.write(f"Cross-check model: 5-fold CV R² **{model.get('cv_r2', 'n/a')}**, MAE **{model.get('cv_mae_pct_points', 'n/a')} percentage points**, n={model.get('n_districts_with_mpi', 'n/a')}. The code uses scikit-learn HistGradientBoostingRegressor as a baseline, not XGBoost, CNN/ViT or a time-series forecast model.")
+    model_name = model.get("model_name", "Gradient-Boosted Decision Trees (XGBRegressor / HistGradientBoostingRegressor)")
+    st.write(f"Cross-check model ({model_name}): 5-fold CV R² **{model.get('cv_r2', 'n/a')}**, MAE **{model.get('cv_mae_pct_points', 'n/a')} percentage points**, n={model.get('n_districts_with_mpi', 'n/a')}. Uses `xgboost.XGBRegressor` when installed and falls back to `HistGradientBoostingRegressor` otherwise.")
     st.caption("NFHS-5 is 2019–21. The MPI file's source is undocumented. Census SC/ST district estimates are published for only a subset. See docs/DATA_QUALITY.md and docs/VIVA_ALIGNMENT.md.")
     st.markdown("Sources: [NFHS-5 (IIPS / MoHFW)](https://www.data.gov.in/catalog/national-family-health-survey-5-nfhs-5-india-districts-factsheet-data-provisional) · [CHIRPS v3](https://www.chc.ucsb.edu/data/chirps3) · [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/api/) · [NASA VIIRS Black Marble](https://ladsweb.modaps.eosdis.nasa.gov/missions-and-measurements/science-domain/nighttime-lights/) · [Copernicus Sentinel-2](https://documentation.dataspace.copernicus.eu/Data/SentinelMissions/Sentinel2.html)")
