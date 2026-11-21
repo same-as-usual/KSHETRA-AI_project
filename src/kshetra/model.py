@@ -81,7 +81,7 @@ def build_model(random_state: int = 42, backend: str = "auto") -> Any:
     )
 
 
-def evaluate(df: pd.DataFrame, n_splits: int = 5, random_state: int = 42, backend: str = "auto") -> dict:
+def evaluate(df: pd.DataFrame, n_splits: int = 5, random_state: int = 42, backend: str = "auto", *, include_oof: bool = False) -> dict:
     """Cross-validated accuracy, validation against the composite index, and permutation importance."""
     chosen = resolve_backend(backend)
     features = list(INDICATORS)
@@ -110,7 +110,7 @@ def evaluate(df: pd.DataFrame, n_splits: int = 5, random_state: int = 42, backen
         "cv_mae_pct_points": round(float(mean_absolute_error(y, preds)), 2),
         "spearman_composite_vs_mpi": round(float(rho), 3) if not np.isnan(rho) else None,
         "permutation_importance": {INDICATOR_LABELS[k]: round(float(v), 4) for k, v in imp.items()},
-        "_oof_predictions": pd.Series(preds, index=train.index),
+        **({"_oof_predictions": pd.Series(preds, index=df.index[df["mpi_hcr_pct"].notna()])} if include_oof else {}),
     }
 
 

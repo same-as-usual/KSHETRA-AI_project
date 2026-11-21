@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
-DEFAULT_DB = Path(__file__).resolve().parents[2] / "data" / "field_verifications.sqlite"
+def default_db() -> Path:
+    override = os.environ.get("KSHETRA_VERIFICATION_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    user_db = root / "kshetra-ai" / "field_verifications.sqlite"
+    legacy_db = Path(__file__).resolve().parents[2] / "data" / "field_verifications.sqlite"
+    # Preserve an existing v5 repository-local log until the operator explicitly migrates it.
+    if legacy_db.is_file() and not user_db.exists():
+        return legacy_db
+    return user_db
+
 STATUSES = {"Pending", "Verified concern", "No concern found", "Needs follow-up"}
 
 
-def _connect(path: Path = DEFAULT_DB) -> sqlite3.Connection:
+def _connect(path: Path | None = None) -> sqlite3.Connection:
+    path = default_db() if path is None else Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path)
     con.execute("""
@@ -33,14 +46,16 @@ def _connect(path: Path = DEFAULT_DB) -> sqlite3.Connection:
 
 
 def add_verification(state: str, district: str, status: str, domain: str, note: str,
-                     source_or_method: str, path: Path = DEFAULT_DB) -> None:
+                     source_or_method: str, path: Path | None = None) -> None:
     """Append a district-level review record after basic validation."""
     if status not in STATUSES:
         raise ValueError(f"status must be one of {sorted(STATUSES)}")
     for label, value in [("state", state), ("district", district), ("domain", domain),
                          ("note", note), ("source_or_method", source_or_method)]:
-        if not str(value).strip():
+        if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{label} must not be blank")
+        if any(ord(c) < 32 and c not in "\n\r\t" for c in value):
+            raise ValueError(f"{label} contains a control character")
     if len(note) > 2000:
         raise ValueError("note must be 2000 characters or fewer")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -51,7 +66,7 @@ def add_verification(state: str, district: str, status: str, domain: str, note: 
         )
 
 
-def list_verifications(path: Path = DEFAULT_DB) -> pd.DataFrame:
+def list_verifications(path: Path | None = None) -> pd.DataFrame:
     """Return the review log, newest first; empty frame if there are no records."""
     with _connect(path) as con:
         return pd.read_sql_query("SELECT * FROM verifications ORDER BY created_at DESC, id DESC", con)

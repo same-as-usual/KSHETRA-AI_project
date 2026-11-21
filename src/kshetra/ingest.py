@@ -20,7 +20,7 @@ def _find_column(columns: list[str], prefix: str) -> str:
     """Return the single column whose stripped name starts with ``prefix``."""
     hits = [c for c in columns if c.strip().startswith(prefix)]
     if len(hits) != 1:
-        raise ValueError(f"Expected exactly one NFHS column starting with {prefix!r}, found {len(hits)}")
+        raise ValueError(f"Expected exactly one NFHS column starting with {prefix!r}, found {len(hits)}; matches={hits!r}; sample headers={columns[:5]!r}")
     return hits[0]
 
 
@@ -113,7 +113,11 @@ def load_census_scst(path: Path = CENSUS_SCST_FILE) -> pd.DataFrame:
             "district_key": raw["District_NFHS5"].str.strip().map(norm_name),
         }
     )
-    published = raw["Source"].str.strip().eq("PUBLISHED")
+    source = raw["Source"].str.strip().str.upper()
+    published = source.eq("PUBLISHED")
+    unknown = sorted(set(source) - {"PUBLISHED", "STATE_MEAN_ESTIMATED"})
+    if unknown or not published.any():
+        warnings.warn(f"{path}: {published.sum()} published SC/ST rows; unknown source labels: {unknown}")
     out["scst_published"] = published
     out["census_scst_pct"] = raw["SCST_Combined_Pct"].map(parse_number).where(published)
     return out

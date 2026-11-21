@@ -41,12 +41,12 @@ st.markdown("""
 
 
 @st.cache_data
-def load_profiles(path: str) -> pd.DataFrame:
+def load_profiles(path: str, mtime_ns: int) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
 @st.cache_data
-def load_metrics(path: str) -> dict:
+def load_metrics(path: str, mtime_ns: int) -> dict:
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -82,8 +82,8 @@ if not PROFILES.exists():
     st.error("District profiles are missing. Place the three CSV files in data/raw/ and run `python -m kshetra.pipeline`.")
     st.stop()
 
-profiles = load_profiles(str(PROFILES))
-metrics = load_metrics(str(METRICS)) if METRICS.exists() else {"model": {}}
+profiles = load_profiles(str(PROFILES), PROFILES.stat().st_mtime_ns)
+metrics = load_metrics(str(METRICS), METRICS.stat().st_mtime_ns) if METRICS.exists() else {"model": {}}
 
 with st.sidebar:
     st.markdown("## KSHETRA-AI")
@@ -289,7 +289,7 @@ with tabs[1]:
         st.markdown("Use CHIRPS for rainfall, VIIRS Black Marble for nighttime-light change, Sentinel-2 for vegetation/land change, and NASA FIRMS for active-fire observations. Document district aggregation, baseline, quality filtering, source and observation dates; see data/environmental/README.md.")
 
     with st.expander("Optional Sentinel-2 before / after image comparison"):
-        st.caption("Upload actual, quality-screened composites and enter their source/date in the captions. This visual does not perform change detection by itself.")
+        st.caption("Images must already share the same footprint, projection, resolution and pixel alignment. Matching dimensions do not verify geographic alignment.")
         img_left, img_right = st.columns(2)
         before_file = img_left.file_uploader("Before image", type=["png", "jpg", "jpeg"], key="s2_before")
         after_file = img_right.file_uploader("After image", type=["png", "jpg", "jpeg"], key="s2_after")
@@ -298,12 +298,11 @@ with tabs[1]:
         after_label = after_details.text_input("After date / source", placeholder="Date and product/source", key="s2_after_details")
         if before_file and after_file:
             try:
-                from PIL import Image, ImageOps
+                from PIL import Image
                 before_img = Image.open(before_file).convert("RGB")
                 after_img = Image.open(after_file).convert("RGB")
-                size = (min(before_img.width, after_img.width), min(before_img.height, after_img.height))
-                before_img = ImageOps.fit(before_img, size)
-                after_img = ImageOps.fit(after_img, size)
+                if before_img.size != after_img.size:
+                    raise ValueError("Different pixel dimensions: align both images to the same geographic grid before upload. No automatic crop is applied.")
                 blend = st.slider("After-image blend", min_value=0, max_value=100, value=50, key="s2_blend") / 100
                 compare = Image.blend(before_img, after_img, blend)
                 cv_stats = compute_image_change_features(np.asarray(before_img), np.asarray(after_img))
@@ -545,6 +544,7 @@ with tabs[5]:
         with st.chat_message("user"):
             st.write(item["question"])
         with st.chat_message("assistant"):
+            st.caption(item.get("engine", "deterministic_template"))
             st.write(item["answer"])
             with st.expander("Retrieved evidence & TF-IDF similarity"):
                 if item["evidence"]:

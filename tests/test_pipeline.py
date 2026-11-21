@@ -39,6 +39,7 @@ def test_norm_name(raw, expected):
 def test_norm_state_aliases():
     assert norm_state("ORISSA") == "ODISHA"
     assert norm_state("Pondicherry") == "PUDUCHERRY"
+    assert norm_state(" Lakshadweep ") == "LAKSHADWEEP"
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -289,3 +290,104 @@ def test_maharastra_spelling_normalizes_to_maharashtra_and_gets_coords():
     df = pd.DataFrame([{"state_raw": "Maharastra", "district_raw": "Pune"}])
     out = attach_approximate_coordinates(df)
     assert out["approx_lat"].notna().all() and out["approx_lon"].notna().all()
+
+
+def test_geo_coordinates_accept_nondefault_and_duplicate_index():
+    from kshetra.geo import attach_approximate_coordinates
+    df = pd.DataFrame([
+        {"state_raw": "Bihar", "district_raw": "Araria"},
+        {"state_raw": "Bihar", "district_raw": "Patna"},
+    ], index=[101, 101])
+    out = attach_approximate_coordinates(df)
+    assert out["approx_lat"].notna().all()
+    assert out["approx_lon"].notna().all()
+
+
+def test_budget_planner_parses_string_booleans_safely():
+    from kshetra.schemes import plan_budget
+    gaps = pd.DataFrame({"planner_eligible": ["True", "False", "false", "1"],
+                         "gap_proxy_pct": [40, 30, 20, 10]})
+    plan = plan_budget(gaps, 1000)
+    assert len(plan) == 2
+    assert set(plan["gap_proxy_pct"]) == {40, 10}
+    assert plan["allocation_inr"].sum() == pytest.approx(1000)
+
+
+def test_image_change_features_accept_grayscale_and_rgba():
+    from kshetra.environment import compute_image_change_features
+    gray = np.full((6, 8), 128, dtype=np.uint8)
+    rgba = np.dstack([np.full((6, 8), 128, dtype=np.uint8)] * 3 + [np.zeros((6, 8), dtype=np.uint8)])
+    result = compute_image_change_features(gray, rgba)
+    assert result["change_heatmap_rgb"].shape == (6, 8, 3)
+
+
+def test_pragati_reuses_cached_vectorizer_for_same_corpus():
+    from kshetra.index import compute_index
+    from kshetra.pragati import vector_search_corpus, _search_index
+    base = _synthetic_frame(n=10, seed=41)
+    base["state_raw"] = "Bihar"
+    base["district_raw"] = [f"District {i}" for i in range(10)]
+    base["state_key"] = "BIHAR"
+    base["district_key"] = [f"DISTRICT {i}" for i in range(10)]
+    profiles = compute_index(base, n_clusters=2)
+    _search_index.cache_clear()
+    vector_search_corpus("fuel", profiles)
+    first = _search_index.cache_info()
+    vector_search_corpus("sanitation", profiles)
+    second = _search_index.cache_info()
+    assert second.hits == first.hits + 1
+
+
+def test_district_name_matching_obeys_word_boundaries():
+    from kshetra.pragati import _district_row
+    profiles = pd.DataFrame([{"district_key": "GOA", "state_key": "GOA", "district_raw": "Goa", "state_raw": "Goa State"}])
+    assert _district_row(profiles, None, "Is Goa flagged?") is not None
+    assert _district_row(profiles, None, "Is this a goat district?") is None
+
+
+def test_scst_source_label_is_case_insensitive_and_warns_unknown(tmp_path):
+    from kshetra.ingest import load_census_scst
+    raw = pd.DataFrame({"State_NFHS5": ["Bihar", "Bihar"], "District_NFHS5": ["A", "B"],
+                        "Source": ["published", "district"], "SCST_Combined_Pct": ["12", "15"]})
+    path = tmp_path / "scst.csv"
+    raw.to_csv(path, index=False)
+    with pytest.warns(UserWarning, match="unknown source labels"):
+        out = load_census_scst(path)
+    assert out["scst_published"].tolist() == [True, False]
+    assert pd.isna(out.loc[1, "census_scst_pct"])
+
+
+def test_evaluate_skips_oof_predictions_unless_requested():
+    from kshetra.index import compute_index
+    from kshetra.model import evaluate
+    base = _synthetic_frame(n=20, seed=54)
+    base["mpi_hcr_pct"] = np.linspace(1, 60, 20)
+    prof = compute_index(base, n_clusters=2)
+    metrics = evaluate(prof, n_splits=2, backend="hist_gb")
+    assert "_oof_predictions" not in metrics
+    metrics_oof = evaluate(prof, n_splits=2, backend="hist_gb", include_oof=True)
+    assert len(metrics_oof["_oof_predictions"]) == 20
+
+
+def test_stac_query_returns_metadata_and_rejects_bad_bbox():
+    import importlib.util
+    from unittest.mock import patch
+    spec = importlib.util.spec_from_file_location("fetch_satellite_stac", ROOT / "scripts" / "fetch_satellite_stac.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"features": [{"id": "scene-1", "properties": {"datetime": "2025-07-01T00:00:00Z", "eo:cloud_cover": 4.0, "platform": "sentinel-2a"}}]}
+    class Client:
+        def __init__(self, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, url, json): return Response()
+    with patch.object(module.httpx, "Client", Client):
+        rows = module.query_stac_scenes([87.1, 25.9, 87.7, 26.5], "2025-07-01/2025-07-31")
+    assert rows[0]["id"] == "scene-1"
+    assert rows[0]["cloud_cover"] == 4.0
+    with pytest.raises(ValueError, match="min coordinates"):
+        module.query_stac_scenes([88, 25, 87, 26], "2025-07-01/2025-07-31")

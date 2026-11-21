@@ -6,3 +6,4 @@ scipy>=1.11
 streamlit>=1.32
 Pillow>=10.0
 xgboost>=2.0
+httpx>=0.24

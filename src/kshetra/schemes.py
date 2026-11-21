@@ -97,34 +97,34 @@ def scheme_gap_frame(profiles: pd.DataFrame) -> pd.DataFrame:
     required = {"state_raw", "district_raw"}
     if not required.issubset(profiles.columns):
         raise ValueError(f"profiles missing required fields: {sorted(required - set(profiles.columns))}")
-    rows = []
-    for _, row in profiles.iterrows():
-        for scheme in SCHEME_PROXIES:
-            measure = pd.to_numeric(pd.Series([row.get(scheme.nfhs_indicator, float("nan"))]), errors="coerce").iloc[0]
-            if pd.isna(measure):
-                gap = float("nan")
-            elif scheme.direction == "burden":
-                gap = float(measure)
-            else:
-                gap = max(0.0, 100.0 - float(measure))
-            rows.append({
-                "state_raw": row["state_raw"], "district_raw": row["district_raw"],
-                "state_key": row.get("state_key", ""), "district_key": row.get("district_key", ""),
-                "scheme_key": scheme.key, "scheme": scheme.name, "ministry": scheme.ministry,
-                "nfhs_indicator": scheme.nfhs_indicator,
-                "proxy_kind": scheme.proxy_kind, "proxy_measure_pct": measure,
-                "proxy_measure_label": scheme.proxy_measure_label,
-                "coverage_proxy_pct": measure if scheme.proxy_kind == "Service-access proxy" else float("nan"),
-                "outcome_proxy_pct": measure if scheme.proxy_kind != "Service-access proxy" else float("nan"),
-                "gap_proxy_pct": gap, "gap_label": scheme.gap_label,
-                "planner_eligible": scheme.planner_eligible,
-                "illustrative_unit_cost_inr": scheme.illustrative_unit_cost_inr,
-                "interpretation": scheme.interpretation, "source_url": scheme.url,
-                "survey_households": row.get("survey_households", float("nan")),
-                "census_households": row.get("census_households", float("nan")),
-                "survey_period": "NFHS-5, 2019-21",
-            })
-    return pd.DataFrame(rows)
+    row = profiles.reset_index(drop=True)
+    n, m = len(row), len(SCHEME_PROXIES)
+    if n == 0:
+        return pd.DataFrame()
+    row_index = np.repeat(np.arange(n), m)
+    scheme_index = np.tile(np.arange(m), n)
+    out = row.iloc[row_index].reset_index(drop=True).copy()
+    scheme_fields = (
+        "key", "name", "ministry", "nfhs_indicator", "proxy_kind", "proxy_measure_label",
+        "gap_label", "planner_eligible", "illustrative_unit_cost_inr", "interpretation", "url",
+    )
+    for field in scheme_fields:
+        out["source_url" if field == "url" else "scheme" if field == "name" else "scheme_key" if field == "key" else field] = np.tile(
+            [getattr(scheme, field) for scheme in SCHEME_PROXIES], n
+        )
+
+    measures = np.full((n, m), np.nan, dtype=float)
+    gaps = np.full((n, m), np.nan, dtype=float)
+    for j, scheme in enumerate(SCHEME_PROXIES):
+        measure = pd.to_numeric(row.get(scheme.nfhs_indicator, pd.Series(np.nan, index=row.index)), errors="coerce").to_numpy(dtype=float)
+        measures[:, j] = measure
+        gaps[:, j] = measure if scheme.direction == "burden" else np.clip(100.0 - measure, 0.0, None)
+    out["proxy_measure_pct"] = measures.reshape(-1)
+    out["coverage_proxy_pct"] = np.where(np.tile([s.proxy_kind == "Service-access proxy" for s in SCHEME_PROXIES], n), out["proxy_measure_pct"], np.nan)
+    out["outcome_proxy_pct"] = np.where(np.tile([s.proxy_kind != "Service-access proxy" for s in SCHEME_PROXIES], n), out["proxy_measure_pct"], np.nan)
+    out["gap_proxy_pct"] = gaps.reshape(-1)
+    out["survey_period"] = "NFHS-5, 2019-21"
+    return out
 
 
 def plan_budget(gaps: pd.DataFrame, budget_inr: float) -> pd.DataFrame:
@@ -133,11 +133,11 @@ def plan_budget(gaps: pd.DataFrame, budget_inr: float) -> pd.DataFrame:
     This is not a cost optimizer, beneficiary forecast, or impact estimate. Nutrition and
     education outcome proxies are excluded because they are not service-coverage denominators.
     """
-    if budget_inr < 0:
+    if not np.isfinite(budget_inr) or budget_inr < 0:
         raise ValueError("budget_inr must be non-negative")
     out = gaps.copy()
     if "planner_eligible" in out:
-        out = out[out["planner_eligible"].fillna(False).astype(bool)]
+        out = out[out["planner_eligible"].astype("string").str.strip().str.lower().isin(["true", "1", "1.0"])]
     if out.empty:
         out["budget_share_pct"] = pd.Series(dtype=float)
         out["allocation_inr"] = pd.Series(dtype=float)

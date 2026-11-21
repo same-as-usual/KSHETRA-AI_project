@@ -33,7 +33,6 @@ STATE_CENTROIDS: dict[str, tuple[float, float]] = {
     "LAKSHADWEEP": (10.5667, 72.6417),
     "MADHYA PRADESH": (22.9734, 78.6569),
     "MAHARASHTRA": (19.7515, 75.7139),
-    "MAHARASTRA": (19.7515, 75.7139),
     "MANIPUR": (24.6637, 93.9063),
     "MEGHALAYA": (25.4670, 91.3662),
     "MIZORAM": (23.1645, 92.9376),
@@ -70,7 +69,8 @@ def attach_approximate_coordinates(profiles: pd.DataFrame) -> pd.DataFrame:
     lats = np.full(len(out), np.nan, dtype=float)
     lons = np.full(len(out), np.nan, dtype=float)
 
-    for state_key, group in out.groupby("state_key", sort=False):
+    positions = out.reset_index(drop=True)
+    for state_key, group in positions.groupby(positions["state_key"].map(norm_state), sort=False):
         center = STATE_CENTROIDS.get(str(state_key))
         if center is None:
             continue
@@ -79,13 +79,13 @@ def attach_approximate_coordinates(profiles: pd.DataFrame) -> pd.DataFrame:
         n = len(idx)
         for rank, row_idx in enumerate(idx):
             if n == 1:
-                lats[out.index.get_loc(row_idx)] = base_lat
-                lons[out.index.get_loc(row_idx)] = base_lon
+                lats[row_idx] = base_lat
+                lons[row_idx] = base_lon
             else:
                 # Golden-angle spiral within state radius (~0.18 to 1.15 deg) for non-overlapping display
                 angle = rank * 2.399963229728653
                 radius = 0.16 * np.sqrt(rank + 1)
-                pos = out.index.get_loc(row_idx)
+                pos = row_idx
                 lats[pos] = base_lat + radius * np.sin(angle) * 0.85
                 lons[pos] = base_lon + radius * np.cos(angle)
 

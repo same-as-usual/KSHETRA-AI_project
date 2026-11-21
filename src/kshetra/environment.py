@@ -109,7 +109,18 @@ def compute_image_change_features(before_rgb: np.ndarray, after_rgb: np.ndarray)
     - Changed Area Fraction (% of pixels exceeding 15% intensity or vegetation shift)
     - Difference heatmap array (H, W, 3) highlighting vegetation loss (red/orange) vs gain (teal)
     """
-    if before_rgb.shape != after_rgb.shape or before_rgb.ndim != 3 or before_rgb.shape[2] != 3:
+    def as_rgb(image):
+        image = np.asarray(image)
+        if image.ndim == 2:
+            image = image[:, :, None]
+        if image.ndim == 3 and image.shape[2] == 1:
+            return np.repeat(image, 3, axis=2)
+        if image.ndim == 3 and image.shape[2] == 4:
+            return image[:, :, :3]  # Match Pillow convert('RGB'); alpha is not a cloud mask.
+        return image
+
+    before_rgb, after_rgb = as_rgb(before_rgb), as_rgb(after_rgb)
+    if not before_rgb.size or before_rgb.shape != after_rgb.shape or before_rgb.ndim != 3 or before_rgb.shape[2] != 3:
         raise ValueError("before_rgb and after_rgb must be aligned HxWx3 RGB arrays")
 
     b_norm = before_rgb.astype(np.float32) / 255.0

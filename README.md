@@ -38,10 +38,18 @@ See `docs/VIVA_ALIGNMENT.md` for a detailed presentation and defense guide.
 
 ## Quick start
 
-1. Use Python 3.10+ and install dependencies from `requirements.txt` (and `requirements-dev.txt` for `pytest`).
-2. Rebuild derived data and model outputs: `python -m kshetra.pipeline`.
-3. Run automated verification suite: `python -m pytest -q`.
-4. Start the dashboard: `streamlit run app/streamlit_app.py`.
+From the repository root in an activated Python 3.10+ virtual environment:
+
+```bash
+python -m pip install -e ".[dev,boost]"
+python -m kshetra.pipeline --backend auto
+python -m pytest -q
+python -m streamlit run app/streamlit_app.py
+```
+
+Use `--backend hist_gb` for scikit-learn, or `--backend xgboost` to require XGBoost. For optional provider SDKs install the `llm` extra. Network, credentials and provider model availability are required for external synthesis; otherwise responses use the local template. The scene catalog helper requires `httpx` and accepts `--search-url`.
+
+Verification notes are plain text. Set `KSHETRA_VERIFICATION_DB` to an absolute database path to reuse an existing log (including v5's `data/field_verifications.sqlite`). Otherwise the app uses `kshetra-ai/field_verifications.sqlite` under `XDG_DATA_HOME` or `~/.local/share`. Do not enter personal data.
 
 For the polygon choropleth in Tab 1, place a GeoJSON boundary file at `data/geo/india_districts.geojson` or upload one in the UI (otherwise the default 707-district state-anchored spatial bubble map is shown). For environmental alerts in Tab 2, use the CSV template in `data/environmental/` or query STAC scene metadata with `python scripts/fetch_satellite_stac.py`.
 

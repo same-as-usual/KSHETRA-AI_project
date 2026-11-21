@@ -8,6 +8,7 @@ No external LLM API key is required; responses never invent unverified statistic
 
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 from typing import Any
 
@@ -37,7 +38,7 @@ def _district_row(profiles: pd.DataFrame, district: str | None, question: str, s
     q = norm_name(question)
     # First check if the user explicitly named a district inside their question
     if q:
-        matches = profiles[profiles["district_key"].map(lambda n: bool(n and len(n) >= 3 and n in q))]
+        matches = profiles[profiles["district_key"].map(lambda n: bool(n and len(n) >= 3 and f" {n} " in f" {q} "))]
         if len(matches) == 1:
             return matches.iloc[0]
         if len(matches) > 1:
@@ -94,14 +95,24 @@ def build_rag_corpus(profiles: pd.DataFrame) -> list[dict[str, Any]]:
     return docs
 
 
+@lru_cache(maxsize=2)
+def _search_index(columns, records):
+    corpus = build_rag_corpus(pd.DataFrame.from_records(records, columns=columns))
+    texts = [doc["_search_text"] for doc in corpus]
+    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=1, sublinear_tf=True)
+    mat = vec.fit_transform(texts)
+    return corpus, vec, mat
+
+
 def vector_search_corpus(question: str, profiles: pd.DataFrame, top_k: int = 6) -> list[dict[str, Any]]:
     """Rank corpus chunks against the query using TF-IDF (word + char n-grams) and cosine similarity."""
     if profiles.empty or not question.strip():
         return []
-    corpus = build_rag_corpus(profiles)
-    texts = [doc["_search_text"] for doc in corpus]
-    vec = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=1, sublinear_tf=True)
-    mat = vec.fit_transform(texts)
+    fields = ("district_raw", "state_raw", "mpi_hcr_pct", "mpi_match", "proxy_mpi_hcr_pct",
+              "risk_tier", "primary_domain", "top_drivers", "composite_percentile", "confidence")
+    frame = profiles.loc[:, [c for c in fields if c in profiles]]
+    records = tuple(frame.astype(object).where(frame.notna(), None).itertuples(index=False, name=None))
+    corpus, vec, mat = _search_index(tuple(frame.columns), records)
     q_vec = vec.transform([question])
     sims = cosine_similarity(q_vec, mat).ravel()
     top_indices = np.argsort(sims)[::-1][:top_k]

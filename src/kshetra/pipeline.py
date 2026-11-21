@@ -7,6 +7,7 @@ Usage (from the repository root, after placing the raw CSVs in data/raw/):
 
 from __future__ import annotations
 
+import argparse
 import json
 import warnings
 
@@ -18,7 +19,7 @@ from .index import cluster_centers, compute_index
 from .model import evaluate, predict_proxy_mpi
 
 
-def run() -> dict:
+def run(backend: str = "auto") -> dict:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -28,9 +29,8 @@ def run() -> dict:
     warning_messages = [str(w.message) for w in caught]
 
     profiled = compute_index(base)
-    metrics = evaluate(profiled)
-    metrics.pop("_oof_predictions", None)
-    profiled["proxy_mpi_hcr_pct"] = predict_proxy_mpi(profiled).round(2)
+    metrics = evaluate(profiled, backend=backend)
+    profiled["proxy_mpi_hcr_pct"] = predict_proxy_mpi(profiled, backend=backend).round(2)
 
     base.to_csv(PROCESSED_DIR / "district_base.csv", index=False)
     profiled.to_csv(OUTPUT_DIR / "district_profiles.csv", index=False, float_format="%.4f")
@@ -52,6 +52,8 @@ def run() -> dict:
 
 
 if __name__ == "__main__":
-    result = run()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backend", choices=("auto", "xgboost", "hist_gb"), default="auto")
+    result = run(backend=parser.parse_args().backend)
     print(json.dumps(result["summary"], indent=2, ensure_ascii=False, default=str))
     print("Model:", {k: v for k, v in result["model"].items() if k != "permutation_importance"})
