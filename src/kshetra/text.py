@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import re
 
-# Old or alternate state names -> the spelling used in NFHS-5.
+# Old or alternate state names -> canonical spelling used across KSHETRA-AI.
 STATE_ALIASES = {
     "ORISSA": "ODISHA",
     "PONDICHERRY": "PUDUCHERRY",
     "MAHARASTRA": "MAHARASHTRA",
     "DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
     "DADRA AND NAGAR HAVELI": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
-    "DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
     "ANDAMAN AND NICOBAR ISLANDS": "ANDAMAN AND NICOBAR ISLANDS",
 }
 

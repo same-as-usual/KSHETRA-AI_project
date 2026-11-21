@@ -22,8 +22,8 @@ from kshetra.config import DOMAIN_LABELS, INDICATOR_LABELS, INDICATORS  # noqa: 
 import numpy as np
 from kshetra.environment import attach_profile_scores, compute_image_change_features, validate_environmental_signals  # noqa: E402
 from kshetra.geo import attach_approximate_coordinates, match_geojson_to_profiles  # noqa: E402
-from kshetra.pragati import answer_query  # noqa: E402
-from kshetra.schemes import SCHEME_PROXIES, plan_budget, scheme_gap_frame  # noqa: E402
+from kshetra.pragati import answer_query, synthesize_with_optional_llm  # noqa: E402
+from kshetra.schemes import SCHEME_PROXIES, plan_budget, scheme_gap_frame, simulate_counterfactual_profile  # noqa: E402
 from kshetra.verification import STATUSES, add_verification, list_verifications  # noqa: E402
 
 PROFILES = ROOT / "outputs" / "district_profiles.csv"
@@ -399,7 +399,14 @@ with tabs[3]:
     if plan.empty:
         st.info("No service-access proxy values are available for this district.")
     else:
-        plan_view = plan[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "budget_share_pct", "allocation_inr", "interpretation"]].copy()
+        sim = simulate_counterfactual_profile(planner_row, profiles, scenario_share)
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Baseline percentile", f"{sim['baseline_percentile']:.1f}th", f"Tier: {sim['baseline_tier']}", delta_color="off")
+        s2.metric("Simulated percentile", f"{sim['simulated_percentile']:.1f}th", f"{sim['percentile_delta']:+.1f} pct pts", delta_color="inverse")
+        s3.metric("Simulated screening tier", str(sim["simulated_tier"]), f"from {sim['baseline_tier']}", delta_color="off")
+        s4.metric("Composite index Δ", f"{sim['simulated_composite']:.3f}", f"{sim['composite_delta']:+.3f} z-score", delta_color="inverse")
+
+        plan_view = plan[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "budget_share_pct", "allocation_inr", "illustrative_unit_cost_inr", "illustrative_units_funded", "interpretation"]].copy()
         plan_view["scenario_coverage_pct"] = (plan_view["coverage_proxy_pct"] + plan_view["gap_proxy_pct"] * scenario_share / 100).clip(upper=100)
         plan_view["allocation"] = plan_view["allocation_inr"].map(money_inr)
         fig_plan = px.bar(plan_view, x="allocation_inr", y="scheme", orientation="h", color="gap_proxy_pct",
@@ -411,15 +418,15 @@ with tabs[3]:
         st.plotly_chart(fig_plan, use_container_width=True)
         before_after = pd.concat([
             plan_view[["scheme", "coverage_proxy_pct"]].rename(columns={"coverage_proxy_pct": "Proxy coverage (%)"}).assign(Scenario="Observed NFHS-5 proxy"),
-            plan_view[["scheme", "scenario_coverage_pct"]].rename(columns={"scenario_coverage_pct": "Proxy coverage (%)"}).assign(Scenario=f"Illustrative target (+{scenario_share}% of gap)"),
+            plan_view[["scheme", "scenario_coverage_pct"]].rename(columns={"scenario_coverage_pct": "Proxy coverage (%)"}).assign(Scenario=f"Counterfactual target (+{scenario_share}% of gap)"),
         ], ignore_index=True)
         fig_scenario = px.bar(before_after, x="scheme", y="Proxy coverage (%)", color="Scenario", barmode="group",
-                              range_y=[0, 100], title="Before / after planning scenario (assumed target, not a forecast)",
+                              range_y=[0, 100], title="Before / after service-gap closure & composite recalculation (counterfactual scenario)",
                               color_discrete_sequence=["#587f78", "#d88a38"])
         fig_scenario.update_layout(height=370, xaxis_tickangle=-18)
         st.plotly_chart(fig_scenario, use_container_width=True)
-        st.dataframe(plan_view[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "scenario_coverage_pct", "budget_share_pct", "allocation", "interpretation"]].round(1), use_container_width=True, hide_index=True)
-        st.caption(f"The after value is a user-selected scenario target: observed proxy coverage plus {scenario_share}% of the observed gap. It is not a predicted or causal impact and is not linked to the entered budget. Budget shares cover service-access proxies only; no eligible-population denominator or unit cost was provided.")
+        st.dataframe(plan_view[["scheme", "coverage_proxy_pct", "gap_proxy_pct", "scenario_coverage_pct", "budget_share_pct", "allocation", "illustrative_unit_cost_inr", "illustrative_units_funded", "interpretation"]].round(1), use_container_width=True, hide_index=True)
+        st.caption(f"Counterfactual simulation recomputes the district's composite index and national percentile assuming {scenario_share}% of each living-standards service gap is closed. Illustrative unit costs (PMUY ₹2,200, SBM-G ₹12,000, PM-JAY ₹1,500, JJM ₹18,000) are reference benchmarks only, not official sanction estimates.")
 
 # MODULE 5 — SchemeGap
 with tabs[4]:
@@ -512,6 +519,11 @@ with tabs[5]:
             st.plotly_chart(fig_ctx, use_container_width=True)
 
     st.markdown("Try: **Why is this district flagged?** · **What scheme gaps are visible?** · **What does the MPI cross-check say?** · **यह जिला क्यों चिन्हित है?** · **योजना कवरेज क्या है?**")
+    with st.expander("Optional LLM synthesis (Gemini / OpenAI API key · falls back to deterministic templates)"):
+        llm_c1, llm_c2 = st.columns([1, 2])
+        llm_provider = llm_c1.selectbox("Synthesis engine", ["Deterministic template (offline)", "Google Gemini (gemini-1.5-flash)", "OpenAI (gpt-4o-mini)"], key="pragati_llm_provider")
+        llm_api_key = llm_c2.text_input("Optional API key (kept in session memory only)", type="password", key="pragati_llm_key")
+
     if "pragati_history" not in st.session_state:
         st.session_state["pragati_history"] = []
     with st.form("pragati_chat_form", clear_on_submit=True):
@@ -519,6 +531,15 @@ with tabs[5]:
         ask = st.form_submit_button("Ask PRAGATI")
     if ask and prompt.strip():
         response = answer_query(prompt.strip(), profiles, district=str(rag_row["district_raw"]), state=str(rag_row["state_raw"]))
+        prov_code = "gemini" if "Gemini" in llm_provider else ("openai" if "OpenAI" in llm_provider else "template")
+        if prov_code in {"gemini", "openai"} and llm_api_key.strip():
+            ans_text, engine_used = synthesize_with_optional_llm(
+                prompt.strip(), response["evidence"], response["answer"], api_key=llm_api_key.strip(), provider=prov_code
+            )
+            response["answer"] = ans_text
+            response["engine"] = engine_used
+        else:
+            response["engine"] = "deterministic_template"
         st.session_state["pragati_history"].append({"question": prompt.strip(), **response})
     for item in reversed(st.session_state["pragati_history"][-8:]):
         with st.chat_message("user"):

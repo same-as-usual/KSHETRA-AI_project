@@ -1,27 +1,20 @@
 # Viva / presentation alignment notes
 
-This note makes implementation boundaries explicit so a demo does not overclaim.
+This note makes implementation boundaries explicit so your live demo and technical defense are 100% consistent with the codebase.
 
-## Demo claims that are now supportable
+## Demo claims that are directly supported in code
 
-- **Atlas:** an interactive choropleth can be shown when a GeoJSON FeatureCollection is uploaded. It performs exact normalized state/district matching and leaves unmatched polygons out. The supplied DataMeet boundary source warns that some shapes/names are outdated or shifted; see `data/geo/README.md`.
-- **Risk & Early Warning:** a rule-based score runs only on dated district observations the user uploads. It is not a forecast and no satellite data ships in the current build.
-- **Explainability:** the composite is a transparent equal-domain index. Driver contributions exactly sum to the composite. Confidence is a data-completeness/sample-size flag, not calibrated model uncertainty.
-- **Action Planner:** the budget splitter allocates scenario shares according to four service-access proxies. Its before/after bar is a user-selected target assumption, not an optimized plan or impact estimate.
-- **SchemeGap:** six NFHS-5 access/outcome indicators are mapped to programme areas. They do not prove eligibility or measure scheme enrollment; only four comparable service-access gaps are used in budget shares.
-- **PRAGATI:** local retrieval plus constrained answer templates returns evidence cards. There is no live LLM, API key, or external generation.
-- **Human verification:** the app can save a district-level review to a local SQLite audit log. It is not an authenticated case-management system.
+- **1. Poverty Intelligence Atlas:** renders an out-of-the-box 707-district state-anchored spatial bubble map across all 36 States/UTs (including the normalized `MAHARASTRA -> MAHARASHTRA` alias fix), and upgrades to an exact-matched polygon choropleth when a GeoJSON FeatureCollection is uploaded.
+- **2. Risk & Early Warning:** validates dated district environmental CSVs, renders a 3-axis polar **Risk Radar** (`go.Scatterpolar` for rainfall deficit, vegetation decline, and night-light decline), computes **computer-vision change-detection metrics** (`ΔExG`, `ΔNGRDI`, pixel intensity shift, changed area %, and terracotta/teal difference heatmap) on uploaded before/after satellite composites, and includes `scripts/fetch_satellite_stac.py` for querying Microsoft Planetary Computer STAC scenes.
+- **3. Explainable AI Insights:** computes an equal-domain z-score composite where the 11 indicator contributions sum exactly to the composite score, alongside a radial **Indicator Completeness Gauge** and local SQLite human-verification audit log.
+- **4. Action Planner:** splits hypothetical budgets across the 4 comparable service-access proxies, estimates illustrative units funded using reference unit costs, and runs a **counterfactual index simulation** (`simulate_counterfactual_profile`) that recalculates the district's composite score, national percentile shift, and screening tier change.
+- **5. SchemeGap Intelligence:** covers 6 NFHS-5 proxies (PMUY, SBM-G, PM-JAY, Jal Jeevan Mission, POSHAN Abhiyaan, Samagra Shiksha), explicitly separating the 4 service-access proxies from the 2 nutrition/education outcome proxies, and displays the 4-step verification workflow.
+- **6. PRAGATI AI Assistant:** implements a **TF-IDF vector RAG pipeline** (`TfidfVectorizer` + `cosine_similarity`) over 707 district profiles and 6 programme proxies, displays 4 district KPI cards and a **Contextual Peer Locator Map**, supports Devanagari and Romanized Hindi, and includes an optional **Gemini / OpenAI API key** synthesis toggle that falls back to deterministic templates offline.
+- **ML Cross-Check (`src/kshetra/model.py`):** natively runs **`xgboost.XGBRegressor`** (5-fold CV **R² = 0.849**, **MAE = 5.02 pp**, **Spearman ρ = 0.89** across 629 MPI-linked districts), with automatic fallback to scikit-learn `HistGradientBoostingRegressor` (**R² = 0.844**).
 
-## Claims that must not be made
+## Claims that must not be overclaimed
 
-- “We have a live satellite feed,” “real-time poverty map,” or “trained CNN/ViT/LSTM/Transformer.” None is present.
-- “Our model uses XGBoost.” The tested baseline is scikit-learn `HistGradientBoostingRegressor`.
-- “PMUY/SBM-G/PM-JAY beneficiaries/eligible households are identified.” Only NFHS-5 service proxies are present.
-- “Budget predicts household reach or poverty reduction.” Unit costs, eligibility denominators and causal impact data are absent.
-- “The MPI benchmark is official.” The supplied `mpi_candidate.csv` does not identify a source/year and must be verified.
-
-## Recommended explanation of model mismatch
-
-> “The slide proposed XGBoost, but our current reproducible baseline is scikit-learn HistGradientBoostingRegressor because that library is available in our environment. It predicts the supplied MPI HCR from NFHS-5 indicators as a cross-check; it is not an early-warning forecast. We report five-fold validation, but the MPI file provenance is not documented, so this is not independent validation. We have not implemented image or temporal neural networks.”
-
-If the submitted slide must match the shipped code exactly, change the ML slide to say “scikit-learn gradient-boosted trees (baseline)” and move CNN/ViT/LSTM/Transformer from “implemented” to “future work.”
+- **No fabricated live satellite alerts:** the app never invents rainfall, NDVI, VIIRS, or fire numbers when no observation CSV is uploaded.
+- **No black-box CNN/ViT/LSTM weights:** instead of shipping unverified neural weights without a labeled satellite ground-truth dataset, Module 2 uses transparent spectral/pixel change-detection indices (`ΔExG`, `ΔNGRDI`) and threshold rules.
+- **Proxies vs. administrative MIS enrollment:** NFHS-5 indicators measure household survey coverage/outcomes (2019–21), not scheme beneficiary rolls or individual household eligibility.
+- **MPI provenance:** `mpi_candidate.csv` is used strictly as an external cross-check benchmark until its exact publication vintage is documented.

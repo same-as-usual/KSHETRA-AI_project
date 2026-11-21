@@ -256,3 +256,36 @@ def test_pragati_tfidf_vector_search_and_roman_hindi():
     hi_reply = answer_query("District 0 kyon flagged hai?", profiles, district="District 0", state="Bihar")
     assert "District 0" in hi_reply["answer"]
     assert hi_reply["intent"] == "drivers"
+
+
+def test_counterfactual_simulation_improves_composite_and_percentile():
+    from kshetra.index import compute_index
+    from kshetra.schemes import simulate_counterfactual_profile
+    base = _synthetic_frame(n=40, seed=21)
+    base["state_raw"] = ["Maharashtra"] * 40
+    base["district_raw"] = [f"District {i}" for i in range(40)]
+    base["state_key"] = ["MAHARASHTRA"] * 40
+    base["district_key"] = [f"DISTRICT {i}" for i in range(40)]
+    base.loc[0, ["clean_cooking_fuel_pct", "improved_sanitation_pct", "improved_water_pct"]] = 15.0
+    profiles = compute_index(base, n_clusters=3)
+    sim = simulate_counterfactual_profile(profiles.loc[0], profiles, gap_closure_pct=50.0)
+    assert sim["simulated_composite"] < sim["baseline_composite"]
+    assert sim["simulated_percentile"] <= sim["baseline_percentile"]
+    assert sim["composite_delta"] < 0
+
+
+def test_optional_llm_fallback_returns_deterministic_template():
+    from kshetra.pragati import synthesize_with_optional_llm
+    evidence = [{"source": "NFHS-5", "district": "Araria / Bihar", "fact": "percentile=99.0", "similarity": 1.0}]
+    ans, engine = synthesize_with_optional_llm("Why is Araria flagged?", evidence, "Template answer", api_key="")
+    assert ans == "Template answer"
+    assert engine == "deterministic_template"
+
+
+def test_maharastra_spelling_normalizes_to_maharashtra_and_gets_coords():
+    from kshetra.geo import attach_approximate_coordinates
+    from kshetra.text import norm_state
+    assert norm_state("Maharastra") == "MAHARASHTRA"
+    df = pd.DataFrame([{"state_raw": "Maharastra", "district_raw": "Pune"}])
+    out = attach_approximate_coordinates(df)
+    assert out["approx_lat"].notna().all() and out["approx_lon"].notna().all()

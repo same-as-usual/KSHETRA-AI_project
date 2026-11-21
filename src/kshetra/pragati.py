@@ -269,3 +269,64 @@ def answer_query(question: str, profiles: pd.DataFrame, district: str | None = N
                       f"data-completeness confidence {row['confidence']}. This is a risk-screening signal, not proof of poverty; "
                       "local field verification is required before action.")
     return {"answer": answer, "evidence": evidence, "district": name, "intent": intent}
+
+
+def synthesize_with_optional_llm(
+    question: str,
+    evidence: list[dict[str, Any]],
+    fallback_answer: str,
+    api_key: str | None = None,
+    provider: str = "gemini",
+) -> tuple[str, str]:
+    """Optionally synthesize a grounded response from retrieved TF-IDF evidence using Gemini or OpenAI.
+
+    Returns ``(answer_text, engine_label)``. If ``api_key`` is blank, the SDK is not installed,
+    or the call fails, cleanly returns ``(fallback_answer, 'deterministic_template')``.
+    """
+    key = (api_key or "").strip()
+    if not key or not evidence:
+        return fallback_answer, "deterministic_template"
+
+    evidence_block = "\n".join(
+        f"- [{item.get('source')}] ({item.get('district')}): {item.get('fact')} (similarity={item.get('similarity', 'n/a')})"
+        for item in evidence
+    )
+    system_instruction = (
+        "You are PRAGATI, the evidence-grounded district intelligence assistant for KSHETRA-AI. "
+        "Answer the user's question ONLY using the verified evidence items provided below. "
+        "Never invent numbers, never claim individual household eligibility, and always state that "
+        "NFHS-5 indicators are screening proxies requiring local field verification. "
+        "Reply in the same language (English or Hindi) as the user's question."
+    )
+    prompt = f"{system_instruction}\n\nVerified Evidence:\n{evidence_block}\n\nQuestion: {question}\nAnswer:"
+
+    prov = provider.strip().lower()
+    if prov == "gemini":
+        try:
+            import google.generativeai as genai  # type: ignore[import-not-found]
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            resp = model.generate_content(prompt)
+            text = getattr(resp, "text", None)
+            if text and text.strip():
+                return text.strip(), "gemini-1.5-flash (RAG grounded)"
+        except Exception:
+            return fallback_answer, "deterministic_template (LLM fallback)"
+    elif prov == "openai":
+        try:
+            from openai import OpenAI  # type: ignore[import-not-found]
+            client = OpenAI(api_key=key)
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": f"Verified Evidence:\n{evidence_block}\n\nQuestion: {question}"},
+                ],
+                temperature=0.1,
+            )
+            text = resp.choices[0].message.content if resp.choices else None
+            if text and text.strip():
+                return text.strip(), "gpt-4o-mini (RAG grounded)"
+        except Exception:
+            return fallback_answer, "deterministic_template (LLM fallback)"
+    return fallback_answer, "deterministic_template"
