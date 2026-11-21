@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import CENSUS_SCST_FILE, INDICATORS, MPI_FILE, NFHS_FILE
+from .config import AUX_INDICATORS, CENSUS_SCST_FILE, INDICATORS, MPI_FILE, NFHS_FILE
 from .text import norm_name, norm_state, parse_number
 
 
@@ -44,6 +44,9 @@ def load_nfhs(path: Path = NFHS_FILE) -> pd.DataFrame:
     out["survey_households"] = raw["Number of Households surveyed"].map(parse_number)
 
     for short, (_domain, _direction, prefix) in INDICATORS.items():
+        col = _find_column(list(raw.columns), prefix)
+        out[short] = raw[col].map(parse_number)
+    for short, (prefix, _label) in AUX_INDICATORS.items():
         col = _find_column(list(raw.columns), prefix)
         out[short] = raw[col].map(parse_number)
 

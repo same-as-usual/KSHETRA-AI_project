@@ -1,11 +1,11 @@
 # Raw data
 
-Place these three files here. They are **not committed to git** (see `.gitignore`), because their licences and redistribution terms should be checked first.
+This local project bundle includes the three aggregate CSVs supplied by the project owner in `data/raw/`. They are git-ignored so they are not accidentally published. Confirm source URLs, licenses, and redistribution terms before committing or sharing them publicly.
 
-| File | Source | Used for |
+| File | Source / note | Used for |
 |---|---|---|
-| `nfhs5_all_districts.csv` | NFHS-5 (2019-21) district fact sheet, IIPS / Ministry of Health and Family Welfare. Download: https://www.nfhs.in | Deprivation indicators (11) and survey sample sizes |
-| `mpi_candidate.csv` | Census 2011 district table with MPI headcount ratio. **Source and year not documented in the file: confirm before use.** | External reference (MPI HCR), SC/ST and literacy shares |
-| `census2011_scst_district.csv` | Census 2011 PCA tables B-13 (SC) and B-14 (ST). Download: https://censusindia.gov.in | Published district SC/ST shares only (84 rows). Other rows are state estimates and are ignored. |
+| `nfhs5_all_districts.csv` | NFHS-5 district fact sheet, 2019-21; see `docs/SOURCES.md` | Deprivation indicators and service-coverage proxies |
+| `mpi_candidate.csv` | User-provided Census 2011 district MPI candidate table; the file itself has no source/year provenance | External benchmark only; confirm before external use |
+| `census2011_scst_district.csv` | User-provided derived table referencing Census PCA B-13/B-14; 84 district values are marked published, 623 are state-level estimates | Published district SC/ST values only |
 
-See `docs/DATA_QUALITY.md` for known issues in each file.
+See `docs/DATA_QUALITY.md` and `docs/SOURCES.md` before using results.

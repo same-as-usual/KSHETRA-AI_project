@@ -118,3 +118,87 @@ def test_frame_has_one_row_per_nfhs_district_and_no_fake_scst_values():
     # Census SC/ST values from the state-estimated rows must not leak into the frame.
     assert df["census_scst_pct"].notna().sum() == df["scst_published"].sum() == 84
     assert df["mpi_hcr_pct"].notna().sum() >= 620
+
+# ---------- six-module helpers ----------
+
+def test_scheme_gap_is_labeled_as_proxy_and_budget_sums():
+    from kshetra.schemes import plan_budget, scheme_gap_frame
+    profile = pd.DataFrame([{
+        "state_raw": "State A", "district_raw": "District A", "state_key": "STATE A", "district_key": "DISTRICT A",
+        "clean_cooking_fuel_pct": 40.0, "improved_sanitation_pct": 60.0,
+        "health_insurance_pct": 25.0, "survey_households": 700,
+    }])
+    gaps = scheme_gap_frame(profile)
+    assert len(gaps) == 3
+    assert set(gaps["survey_period"]) == {"NFHS-5, 2019-21"}
+    assert gaps["gap_proxy_pct"].between(0, 100).all()
+    plan = plan_budget(gaps, 10_000_000)
+    assert plan["allocation_inr"].sum() == pytest.approx(10_000_000)
+    assert plan["interpretation"].str.contains("not").all()
+
+
+def test_environmental_rule_score_uses_only_uploaded_observations():
+    from kshetra.environment import score_environmental_risk
+    observed = pd.DataFrame([{
+        "state": "State A", "district": "District A", "observed_at": "2025-07-01",
+        "source": "CHIRPS v3 + Sentinel-2 L2A, aggregated per district",
+        "rainfall_deficit_pct": 40, "ndvi_change_pct": -30,
+        "viirs_change_pct": None, "fire_count": 0,
+    }])
+    scored = score_environmental_risk(observed)
+    assert scored.loc[0, "environmental_score"] == pytest.approx(100)
+    assert scored.loc[0, "alert_level"] == "High signal"
+    assert scored.loc[0, "requires_field_verification"]
+    assert scored.loc[0, "source"].startswith("CHIRPS")
+
+
+def test_environmental_input_rejects_missing_provenance():
+    from kshetra.environment import validate_environmental_signals
+    bad = pd.DataFrame([{"state": "A", "district": "B", "observed_at": "2025-01-01",
+                         "rainfall_deficit_pct": 20}])
+    with pytest.raises(ValueError, match="source"):
+        validate_environmental_signals(bad)
+
+
+def test_local_assistant_retrieves_district_evidence():
+    from kshetra.index import compute_index
+    from kshetra.pragati import answer_query
+    base = _synthetic_frame(n=40, seed=7)
+    base["state_raw"] = ["State A"] * 40
+    base["district_raw"] = [f"District {i}" for i in range(40)]
+    base["state_key"] = ["STATE A"] * 40
+    base["district_key"] = [f"DISTRICT {i}" for i in range(40)]
+    base["mpi_hcr_pct"] = np.nan
+    profiles = compute_index(base, n_clusters=3)
+    reply = answer_query("Why is this district flagged?", profiles, district="District 0", state="State A")
+    assert "District 0" in reply["answer"]
+    assert reply["evidence"]
+    assert any("NFHS-5" in e["source"] for e in reply["evidence"])
+
+
+def test_geojson_exact_join_does_not_guess():
+    from kshetra.geo import match_geojson_to_profiles
+    profiles = pd.DataFrame([{
+        "state_raw": "State A", "district_raw": "District A", "state_key": "STATE A",
+        "district_key": "DISTRICT A", "composite_percentile": 75.0,
+    }])
+    geo = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"ST_NM": "State A", "DISTRICT": "District A"},
+         "geometry": {"type": "Polygon", "coordinates": []}},
+        {"type": "Feature", "properties": {"ST_NM": "State A", "DISTRICT": "Unknown"},
+         "geometry": {"type": "Polygon", "coordinates": []}},
+    ]}
+    matched_geo, matched = match_geojson_to_profiles(geo, profiles, "DISTRICT", "ST_NM")
+    assert len(matched) == 1
+    assert len(matched_geo["features"]) == 1
+    assert matched_geo["features"][0]["properties"]["_kshetra_key"] == "STATE A::DISTRICT A"
+
+
+def test_verification_log_is_append_only_and_local(tmp_path):
+    from kshetra.verification import add_verification, list_verifications
+    path = tmp_path / "verification.sqlite"
+    add_verification("State A", "District A", "Verified concern", "Education", "Aggregate review", "Block review", path)
+    rows = list_verifications(path)
+    assert len(rows) == 1
+    assert rows.loc[0, "district"] == "District A"
+    assert rows.loc[0, "status"] == "Verified concern"

@@ -1,66 +1,69 @@
 # KSHETRA-AI
 
-**From deprivation data to localized action.** KSHETRA-AI is a district-level poverty-risk and intervention-intelligence platform for India. This repository holds the first build: a reproducible data pipeline on real district datasets, an explainable deprivation index, a cross-check model, and a dashboard prototype.
+**From deprivation data to localized action.** KSHETRA-AI is a district-level deprivation screening and intervention-planning prototype for India, aligned to the six modules in the project presentation.
 
-> A high score flags a district for **verification**. It does not show that people in the district are poor, and no decision about any individual should be based on it.
+> A score is a screening signal for review. It is not proof of poverty, a household eligibility determination, or a recommendation about an individual.
 
-## What is built
+## Six modules
 
-| Component | Where | Status |
+| Module | What is implemented | Data / limits |
 |---|---|---|
-| Ingestion and cleaning of NFHS-5, Census 2011 MPI table, Census 2011 SC/ST table | `src/kshetra/ingest.py` | Working |
-| Name matching across datasets (exact, then fuzzy with a unique-match rule) | `src/kshetra/crosswalk.py`, `src/kshetra/text.py` | Working: 629 of 707 districts linked to Census 2011 MPI |
-| Explainable deprivation index (11 indicators, 3 domains) with driver breakdown and confidence | `src/kshetra/index.py` | Working |
-| K-Means district profile clusters | `src/kshetra/index.py` | Working |
-| Cross-check model: MPI from NFHS-5 indicators (gradient boosting) | `src/kshetra/model.py` | Working: 5-fold CV R² 0.84 |
-| Dashboard: atlas, district profile, model check, data notes | `app/streamlit_app.py` | Prototype (not yet run in a browser) |
-| Satellite signals (CHIRPS, VIIRS, Sentinel-2) | none yet | Not started. See `docs/ROADMAP.md` |
-| SchemeGap, intervention planner, RAG assistant | none yet | Not started |
+| **1. Poverty Intelligence Atlas** | Interactive district choropleth, filters, state summaries and ranked table. | Requires a GeoJSON boundary file. Exact name matches only; boundary vintage and unmatched districts are disclosed. |
+| **2. Risk & Early Warning** | Import validation, rule-based anomaly screening, dated trend display, optional before/after image comparison. | No environmental data is bundled or fetched automatically. Upload attributed observations from CHIRPS, VIIRS, Sentinel-2 and/or FIRMS; no alerts appear without uploaded data. |
+| **3. Explainable AI Insights** | Composite percentile, risk tier, indicator contributions, domain scores, confidence flag, MPI cross-check, aggregate human review form. | Confidence describes missingness/sample size, not calibrated model certainty. Local SQLite log; no user authentication or multi-user controls. |
+| **4. Action Planner** | User-entered hypothetical budget split in proportion to available service-gap proxies. | Not a cost optimizer, beneficiary count, entitlement decision or impact forecast. Unit costs and eligible-population denominators are absent. |
+| **5. SchemeGap Intelligence** | District gaps from NFHS-5 clean-fuel, sanitation and health-insurance indicators with official scheme links. | These are service-coverage proxies, not scheme enrollment or eligibility. Administrative scheme-coverage data is still needed. |
+| **6. PRAGATI AI Assistant** | Local district retrieval with evidence cards and constrained answer templates; limited common Hindi intents. | No external LLM, API key or free-form generated advice is connected. |
 
-## Data sources
+## Verified data currently in the project
 
-Real public datasets, placed by hand in `data/raw/` (not committed). See `data/raw/README.md`.
+The bundle includes the aggregate CSV files supplied with the project. They are retained locally under `data/raw/` and ignored by Git by default; confirm source, licensing and redistribution terms before publishing them.
 
-- **NFHS-5 (2019-21)**: district fact sheet, 707 districts. Indicators used are listed in `src/kshetra/config.py`.
-- **Census 2011 MPI table**: district multidimensional-poverty headcount ratio (MPI HCR). Its source is not documented in the file, so confirm it before external use.
-- **Census 2011 SC/ST table**: only 84 rows hold district values. The other 623 rows hold state averages and are ignored.
+- **NFHS-5 (2019–21)**: 707 district fact-sheet rows. Eleven indicators make the deprivation composite; additional NFHS fields support service-coverage proxy views.
+- **Census 2011 MPI candidate table**: 629 of 707 NFHS districts are linked after exact/unique fuzzy matching. Its source/year are not documented in the supplied CSV, so the HCR is only an unverified external cross-check.
+- **Census SC/ST table**: only 84 rows are marked district-published. The other 623 state-average rows are excluded from district analysis.
+- **Satellite / weather / scheme administrative data**: not included. The project does not fabricate sample signals or claim live ingestion.
 
-Every raw-data issue found, and how it was handled, is listed in `docs/DATA_QUALITY.md`.
+See `docs/SOURCES.md` and `docs/DATA_QUALITY.md` for source links, caveats, and cleaning decisions.
 
-## Method
+## Model and evaluation
 
-1. Each NFHS-5 indicator is imputed with the national median when missing, z-scored across districts, and signed so that a positive value means more deprivation.
-2. Indicators are averaged into three domains: living standards, education, and health & nutrition.
-3. The composite index is the mean of the three domain scores. It is exactly the sum of per-indicator contributions, which drives the "why this district?" chart.
-4. Risk tiers come from the composite percentile: Very high (top quarter), High, Moderate, Lower.
-5. Confidence is High when all indicators are present and the survey has at least 500 households, Medium when at most two are missing and at least 200 households were surveyed, and Low otherwise. It measures data completeness, not model accuracy.
+- **Explainable composite:** 11 NFHS indicators are direction-normalized and z-scored, averaged into living-standards, education, and health/nutrition domains, then equally averaged. Indicator contributions sum to the composite.
+- **Screening tiers:** percentile-based quartiles (`Very high`, `High`, `Moderate`, `Lower`); these are relative ranks within this dataset, not policy thresholds.
+- **Confidence flag:** derived from indicator missingness and NFHS sample size; it is not predictive confidence.
+- **Cross-check model:** scikit-learn `HistGradientBoostingRegressor`, predicting the supplied MPI HCR from NFHS-5 indicators. Current five-fold CV: R² 0.84, MAE 5.1 percentage points on 629 districts. MPI provenance is undocumented, so this is not independent validation.
+- **Clusters:** K-Means descriptive profiles on the three domain scores.
 
-Validation: the composite ranks districts close to the Census 2011 MPI HCR (Spearman 0.89 on 629 districts). The MPI provenance is undocumented, so treat this as a consistency check, not proof of accuracy.
+The presentation mentions XGBoost, CNN/ViT and temporal models. Those are **not** implemented in this build. The current model is not a livelihood-risk forecast. See `docs/VIVA_ALIGNMENT.md` for a careful demo talk track.
 
 ## Quick start
 
-1. Create a virtual environment and install the packages listed in `requirements-dev.txt`.
-2. Put the three CSVs in `data/raw/` (see `data/raw/README.md`).
-3. Build the dataset, index and model outputs: `python -m kshetra.pipeline`
-4. Run the tests: `python -m pytest -q`
-5. Open the dashboard: `streamlit run app/streamlit_app.py`
+1. Use Python 3.10+ and set up the project environment from `pyproject.toml` (the `dev` extra includes the test runner).
+2. Rebuild derived data and model outputs: `python -m kshetra.pipeline`.
+3. Run checks: `python -m pytest -q`.
+4. Start the dashboard: `streamlit run app/streamlit_app.py`.
 
-Outputs are written to `outputs/`: `district_profiles.csv` (one row per district, all indicators, scores, tiers, drivers, confidence and MPI cross-check), `profile_clusters.csv`, and `model_metrics.json`.
+For the district map, download a GeoJSON boundary file, convert a sourced shapefile with `scripts/convert_district_shapefile.py` (optional GeoPandas dependency), or upload a GeoJSON in the Atlas. Read `data/geo/README.md` first. For environmental alerts, use the empty CSV template under `data/environmental/` and follow its schema and provenance requirements.
+
+Outputs are written to `outputs/`: district profiles with scores and contributions, cluster summaries, and cross-check metrics. Environmental observations and the field-verification SQLite database are not written to the public model outputs.
 
 ## Repository layout
 
 ```
-src/kshetra/      pipeline code (config, text, ingest, crosswalk, index, model, pipeline)
-app/              Streamlit dashboard
-tests/            pytest suite (real-data tests skip when CSVs are absent)
-data/raw/         place source CSVs here (git-ignored)
-docs/             data-quality log and roadmap
-outputs/          generated outputs
+src/kshetra/        ingestion, crosswalk, index, model, schemes, environment, verification, RAG
+app/                six-module Streamlit dashboard
+scripts/            optional boundary conversion utility
+tests/              unit and real-data pipeline tests
+data/raw/           supplied aggregate datasets (git-ignored)
+data/geo/           optional attributed GeoJSON boundaries
+data/environmental/ optional sourced district-date signals and schema
+docs/               data quality, sources, roadmap, viva alignment
+outputs/             generated district profiles, clusters and model metrics
 ```
 
-## Responsible use
+## Responsible use and deployment limits
 
-- Satellite and survey signals indicate **risk**, not proof of poverty.
-- Every flagged district needs **local field verification** before action.
-- No automatic decisions about individuals.
-- Confidence and data limits are shown with every result.
+- Environmental signals indicate environmental stress; they are not poverty evidence.
+- Never infer individual eligibility, benefit receipt, or entitlement from these district aggregates.
+- Field verification is required before action. The prototype's local review log must not contain personal data.
+- For operational deployment, add current administrative coverage, access controls, retention policy, independent validation, and monitored data-quality procedures.

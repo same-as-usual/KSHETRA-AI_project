@@ -13,7 +13,7 @@ import difflib
 
 import pandas as pd
 
-from .config import INDICATORS
+from .config import AUX_INDICATORS, INDICATORS
 from .ingest import load_census_scst, load_mpi, load_nfhs
 from .text import norm_state
 
@@ -91,6 +91,7 @@ def build_district_frame() -> pd.DataFrame:
 
     ordered = ["state_raw", "district_raw", "state_key", "district_key", "survey_households"]
     ordered += list(INDICATORS)
+    ordered += list(AUX_INDICATORS)
     ordered += ["mpi_hcr_pct", "mpi_match"] + mpi_cols[1:]
     ordered += ["census_scst_pct", "scst_published"]
     return df[ordered].reset_index(drop=True)

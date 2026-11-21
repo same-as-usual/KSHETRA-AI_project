@@ -33,6 +33,16 @@ INDICATORS: dict[str, tuple[str, int, str]] = {
     "fully_vaccinated_pct": ("health_nutrition", -1, "Children age 12-23 months fully vaccinated based on information from either"),
 }
 
+# Additional NFHS-5 fields for scheme-gap proxy views. Kept out of the deprivation
+# composite and MPI cross-check model so that the original model specification is stable.
+# short name -> (NFHS column-label prefix, human label)
+AUX_INDICATORS: dict[str, tuple[str, str]] = {
+    "health_insurance_pct": (
+        "Households with any usual member covered under a health insurance/financing scheme",
+        "Households with any health insurance / financing cover (%)",
+    ),
+}
+
 # Human readable labels for the dashboard.
 INDICATOR_LABELS: dict[str, str] = {
     "electricity_pct": "Households with electricity (%)",
