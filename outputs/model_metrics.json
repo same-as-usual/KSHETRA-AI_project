@@ -1,0 +1,42 @@
+{
+  "summary": {
+    "districts": 707,
+    "mpi_matched": 629,
+    "mpi_exact": 617,
+    "mpi_fuzzy": 12,
+    "census_scst_published": 84,
+    "risk_tier_counts": {
+      "High": 178,
+      "Very high": 177,
+      "Lower": 176,
+      "Moderate": 176
+    },
+    "confidence_counts": {
+      "High": 694,
+      "Medium": 13
+    },
+    "warnings": [
+      "Excluding conflicting MPI rows: UTTAR PRADESH/HAMIRPUR, HIMACHAL PRADESH/HAMIRPUR"
+    ]
+  },
+  "model": {
+    "n_districts_with_mpi": 629,
+    "cv_folds": 5,
+    "cv_r2": 0.844,
+    "cv_mae_pct_points": 5.1,
+    "spearman_composite_vs_mpi": 0.89,
+    "permutation_importance": {
+      "Women (15-49) who are literate (%)": 0.245,
+      "Households with clean cooking fuel (%)": 0.2065,
+      "Institutional births (%)": 0.0679,
+      "Children under 5 who are stunted (%)": 0.0404,
+      "Households with electricity (%)": 0.0257,
+      "Population with improved sanitation (%)": 0.0203,
+      "Population with improved drinking water (%)": 0.0095,
+      "Children under 5 who are wasted (%)": 0.0084,
+      "Children 6-59 months who are anaemic (%)": 0.0074,
+      "Females (6+) who ever attended school (%)": 0.0054,
+      "Children 12-23 months fully vaccinated (%)": 0.0029
+    }
+  }
+}
