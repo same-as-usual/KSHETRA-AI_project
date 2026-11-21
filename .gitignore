@@ -2,11 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
-data/raw/*.csv
-data/processed/
-outputs/district_profiles.csv
-outputs/profile_clusters.csv
 .DS_Store
+data/processed/
 data/field_verifications.sqlite
 data/geo/*.geojson
 data/environmental/*.csv
