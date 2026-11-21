@@ -20,26 +20,26 @@
     ]
   },
   "model": {
-    "model_backend": "hist_gb",
-    "model_name": "Scikit-Learn HistGradientBoostingRegressor",
-    "xgboost_available": false,
+    "model_backend": "xgboost",
+    "model_name": "XGBoost (XGBRegressor)",
+    "xgboost_available": true,
     "n_districts_with_mpi": 629,
     "cv_folds": 5,
-    "cv_r2": 0.844,
-    "cv_mae_pct_points": 5.1,
+    "cv_r2": 0.849,
+    "cv_mae_pct_points": 5.02,
     "spearman_composite_vs_mpi": 0.89,
     "permutation_importance": {
-      "Women (15-49) who are literate (%)": 0.245,
-      "Households with clean cooking fuel (%)": 0.2065,
-      "Institutional births (%)": 0.0679,
-      "Children under 5 who are stunted (%)": 0.0404,
-      "Households with electricity (%)": 0.0257,
-      "Population with improved sanitation (%)": 0.0203,
-      "Population with improved drinking water (%)": 0.0095,
-      "Children under 5 who are wasted (%)": 0.0084,
-      "Children 6-59 months who are anaemic (%)": 0.0074,
-      "Females (6+) who ever attended school (%)": 0.0054,
-      "Children 12-23 months fully vaccinated (%)": 0.0029
+      "Women (15-49) who are literate (%)": 0.2332,
+      "Households with clean cooking fuel (%)": 0.1729,
+      "Institutional births (%)": 0.0556,
+      "Children under 5 who are stunted (%)": 0.0417,
+      "Households with electricity (%)": 0.0296,
+      "Population with improved sanitation (%)": 0.0166,
+      "Population with improved drinking water (%)": 0.0113,
+      "Children under 5 who are wasted (%)": 0.0072,
+      "Children 6-59 months who are anaemic (%)": 0.0057,
+      "Females (6+) who ever attended school (%)": 0.0052,
+      "Children 12-23 months fully vaccinated (%)": 0.0014
     }
   }
 }
