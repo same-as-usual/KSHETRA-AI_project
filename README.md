@@ -23,7 +23,7 @@
 - `kshetra.forecast`: per-district Markov drought-transition baseline with sample counts; requires a monthly series you supply.
 - `kshetra.mis`: validates an administrative MIS export and compares enrolment coverage with NFHS-5 proxies.
 
-These components have synthetic-data tests only. They are not yet used by the dashboard and have no validated skill metrics.
+The dashboard exposes three of these as optional, off-by-default sections: the CNN embedding check (Module 2 image panel, needs a local weights file path), the monthly drought-transition baseline (Module 2, needs a monthly CSV), and the MIS comparison (Module 5, needs an MIS CSV). The zonal bridge is a command-line step only. Every component has synthetic-data tests only and no validated skill metrics.
 
 ## Verified data currently in the project
 
