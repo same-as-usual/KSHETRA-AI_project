@@ -10,7 +10,7 @@ This note makes implementation boundaries explicit so your live demo and technic
 - **4. Action Planner:** splits hypothetical budgets across the 4 comparable service-access proxies, estimates illustrative units funded using reference unit costs, and runs a **counterfactual index simulation** (`simulate_counterfactual_profile`) that recalculates the district's composite score, national percentile shift, and screening tier change.
 - **5. SchemeGap Intelligence:** covers 6 NFHS-5 proxies (PMUY, SBM-G, PM-JAY, Jal Jeevan Mission, POSHAN Abhiyaan, Samagra Shiksha), explicitly separating the 4 service-access proxies from the 2 nutrition/education outcome proxies, and displays the 4-step verification workflow.
 - **6. PRAGATI AI Assistant:** implements a **TF-IDF vector RAG pipeline** (`TfidfVectorizer` + `cosine_similarity`) over 707 district profiles and 6 programme proxies, displays 4 district KPI cards and a **Contextual Peer Locator Map**, supports Devanagari and Romanized Hindi, and includes an optional **Gemini / OpenAI API key** synthesis toggle that falls back to deterministic templates offline.
-- **ML Cross-Check (`src/kshetra/model.py`):** natively runs **`xgboost.XGBRegressor`** (5-fold CV **R² = 0.849**, **MAE = 5.02 pp**, **Spearman ρ = 0.89** across 629 MPI-linked districts), with automatic fallback to scikit-learn `HistGradientBoostingRegressor` (**R² = 0.844**).
+- **ML Cross-Check (`src/kshetra/model.py`):** natively runs **`xgboost.XGBRegressor`** (5-fold CV on the bundled v8 data: **R² = 0.845**, **MAE = 5.12 pp**, **Spearman ρ = 0.89** across 629 MPI-linked districts), with automatic fallback to scikit-learn `HistGradientBoostingRegressor` (**R² = 0.844**).
 
 ## Claims that must not be overclaimed
 
