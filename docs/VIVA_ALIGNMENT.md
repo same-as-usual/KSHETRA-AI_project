@@ -15,6 +15,7 @@ This note makes implementation boundaries explicit so your live demo and technic
 ## Claims that must not be overclaimed
 
 - **No fabricated live satellite alerts:** the app never invents rainfall, NDVI, VIIRS, or fire numbers when no observation CSV is uploaded.
+- **Optional modules are not part of the demo:** the zonal bridge, CNN-embedding path, drought transition baseline and MIS comparison are code paths with synthetic-data tests. None is wired into the dashboard, none ships with real data, and none has skill metrics. Say so explicitly if asked.
 - **No black-box CNN/ViT/LSTM weights:** instead of shipping unverified neural weights without a labeled satellite ground-truth dataset, Module 2 uses transparent spectral/pixel change-detection indices (`ΔExG`, `ΔNGRDI`) and threshold rules.
 - **Proxies vs. administrative MIS enrollment:** NFHS-5 indicators measure household survey coverage/outcomes (2019–21), not scheme beneficiary rolls or individual household eligibility.
 - **MPI provenance:** `mpi_candidate.csv` is used strictly as an external cross-check benchmark until its exact publication vintage is documented.

@@ -391,3 +391,184 @@ def test_stac_query_returns_metadata_and_rejects_bad_bbox():
     assert rows[0]["cloud_cover"] == 4.0
     with pytest.raises(ValueError, match="min coordinates"):
         module.query_stac_scenes([88, 25, 87, 26], "2025-07-01/2025-07-31")
+
+
+# ---------- v7: STAC bridge, GeoJSON audit, embeddings, transition baseline, MIS ----------
+
+def test_zonal_mean_respects_mask_and_missing_threshold():
+    from kshetra.zonal import zonal_mean
+    values = np.array([[1.0, 2.0], [np.nan, np.nan]])
+    mask = np.ones((2, 2), dtype=bool)
+    assert zonal_mean(values, mask, min_valid_fraction=0.5) == pytest.approx(1.5)
+    assert math.isnan(zonal_mean(values, mask, min_valid_fraction=0.9))
+    with pytest.raises(ValueError):
+        zonal_mean(values, np.zeros((2, 2), dtype=bool))
+
+
+def test_ndvi_and_percent_change_signs():
+    from kshetra.zonal import ndvi, pct_change, rainfall_deficit_pct
+    assert ndvi([0.6], [0.2])[0] == pytest.approx(0.5)
+    assert math.isnan(ndvi([0.0], [0.0])[0])
+    assert pct_change(0.3, 0.5) == pytest.approx(-40.0)   # vegetation decline is negative
+    assert rainfall_deficit_pct(60, 100) == pytest.approx(40.0)  # positive = below normal
+    assert math.isnan(rainfall_deficit_pct(60, 0))
+
+
+def test_zonal_bridge_blanks_ndvi_for_cloudy_scenes_and_keeps_schema():
+    from kshetra.zonal import zonal_table_to_signals
+    table = pd.DataFrame([
+        {"state": "Bihar", "district": "Araria", "observed_at": "2025-07-31", "source": "CHIRPS + S2 zonal means",
+         "scene_ids": "S2A_1;S2B_2", "ndvi_current": 0.30, "ndvi_baseline": 0.50,
+         "viirs_current": 9.0, "viirs_baseline": 10.0, "rain_observed_mm": 60, "rain_normal_mm": 100, "fire_count": 2},
+        {"state": "Bihar", "district": "Patna", "observed_at": "2025-07-31", "source": "CHIRPS + S2 zonal means",
+         "scene_ids": "S2A_3", "ndvi_current": 0.30, "ndvi_baseline": 0.50,
+         "viirs_current": 9.0, "viirs_baseline": 10.0, "rain_observed_mm": 60, "rain_normal_mm": 100, "fire_count": None},
+    ])
+    scenes = {"S2A_1": 5.0, "S2B_2": 35.0, "S2A_3": 10.0}
+    signals, rejected = zonal_table_to_signals(table, scenes, max_cloud_cover=20)
+    assert rejected.empty
+    araria = signals[signals["district"] == "Araria"].iloc[0]
+    patna = signals[signals["district"] == "Patna"].iloc[0]
+    assert math.isnan(araria["ndvi_change_pct"])      # one scene at 35% cloud blanks NDVI
+    assert patna["ndvi_change_pct"] == pytest.approx(-40.0)
+    assert araria["rainfall_deficit_pct"] == pytest.approx(40.0)
+    assert "S2A_1" in patna["source"] or "S2A_3" in patna["source"]
+    assert list(signals.columns) == ["state", "district", "observed_at", "source", "rainfall_deficit_pct",
+                                     "ndvi_change_pct", "viirs_change_pct", "fire_count"]
+
+
+def test_zonal_bridge_rejects_rows_without_any_usable_signal():
+    from kshetra.zonal import zonal_table_to_signals
+    table = pd.DataFrame([{
+        "state": "Bihar", "district": "Nowhere", "observed_at": "2025-07-31", "source": "x", "scene_ids": "missing",
+        "ndvi_current": 0.3, "ndvi_baseline": 0.5, "viirs_current": np.nan, "viirs_baseline": np.nan,
+        "rain_observed_mm": np.nan, "rain_normal_mm": np.nan,
+    }])
+    signals, rejected = zonal_table_to_signals(table, {})
+    assert signals.empty
+    assert rejected.loc[0, "reason"] == "no usable numeric anomaly"
+
+
+def test_bridge_output_passes_environment_validator():
+    from kshetra.environment import score_environmental_risk
+    from kshetra.zonal import zonal_table_to_signals
+    table = pd.DataFrame([{
+        "state": "Bihar", "district": "Araria", "observed_at": "2025-07-31", "source": "CHIRPS",
+        "scene_ids": "S2A_1", "ndvi_current": 0.30, "ndvi_baseline": 0.50, "viirs_current": 9.0,
+        "viirs_baseline": 10.0, "rain_observed_mm": 60, "rain_normal_mm": 100,
+    }])
+    signals, _ = zonal_table_to_signals(table, {"S2A_1": 4.0})
+    scored = score_environmental_risk(signals)
+    assert scored.loc[0, "environmental_score"] > 0
+
+
+def test_geojson_audit_reports_size_coverage_and_unmatched_without_repair():
+    from kshetra.geo import audit_district_geojson
+    profiles = pd.DataFrame([
+        {"state_raw": "Bihar", "district_raw": "Araria", "state_key": "BIHAR", "district_key": "ARARIA"},
+        {"state_raw": "Bihar", "district_raw": "Patna", "state_key": "BIHAR", "district_key": "PATNA"},
+    ])
+    geo = {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {"ST_NM": "Bihar", "DISTRICT": "Araria"}, "geometry": None},
+        {"type": "Feature", "properties": {"ST_NM": "Bihar", "DISTRICT": "Unknown"}, "geometry": None},
+    ]}
+    report = audit_district_geojson(geo, profiles, "DISTRICT", "ST_NM", file_bytes=2_000_000, max_mb=3.0)
+    assert report["matched_profile_districts"] == 1
+    assert report["profile_districts_without_polygon"] == 1
+    assert report["unmatched_feature_count"] == 1
+    assert report["within_size_limit"] is True
+    too_big = audit_district_geojson(geo, profiles, "DISTRICT", "ST_NM", file_bytes=5_000_000, max_mb=3.0)
+    assert too_big["within_size_limit"] is False
+
+
+def test_embedding_difference_uses_injected_extractor_and_checks_inputs():
+    from kshetra.embeddings import embedding_difference
+    def mean_colour(rgb):
+        return rgb.reshape(-1, 3).mean(axis=0)
+    before = np.full((4, 4, 3), 100, dtype=np.uint8)
+    after = np.full((4, 4, 3), 100, dtype=np.uint8)
+    after[:, :, 0] = 200
+    res = embedding_difference(before, after, mean_colour)
+    assert res["embedding_dim"] == 3
+    assert res["l2_distance"] > 0
+    assert res["cosine_distance"] >= 0
+    same = embedding_difference(before, before, mean_colour)
+    assert same["l2_distance"] == pytest.approx(0.0)
+    with pytest.raises(ValueError):
+        embedding_difference(before, after, lambda rgb: np.ones(3) if rgb[0, 0, 0] == 100 else np.ones(2))
+
+
+def test_torchvision_extractor_fails_clearly_without_torch(tmp_path):
+    from kshetra.embeddings import torchvision_extractor
+    import importlib.util
+    if importlib.util.find_spec("torch") is not None:
+        pytest.skip("torch is installed; the missing-dependency path is not reachable")
+    with pytest.raises(RuntimeError, match="PyTorch"):
+        torchvision_extractor(tmp_path / "missing.pt")
+
+
+def _monthly_series(pattern: list[float], district: str = "ARARIA", years: int = 4) -> pd.DataFrame:
+    months = pd.period_range("2019-01", periods=12 * years, freq="M")
+    values = [pattern[i % 12] for i in range(len(months))]
+    return pd.DataFrame({"district_key": district, "month": months.to_timestamp(), "value": values})
+
+
+def test_transition_baseline_forecasts_from_latest_state_and_flags_short_history():
+    from kshetra.forecast import drought_transition_baseline
+    rng = np.random.default_rng(0)
+    # Persistent deficits: a deficit month is followed by another deficit most of the time.
+    rows = []
+    for year in range(4):
+        for month in range(12):
+            base = 100.0
+            dry = (year % 2 == 0 and month in (5, 6, 7, 8))
+            rows.append({"district_key": "ARARIA", "month": pd.Timestamp(2019 + year, month + 1, 1),
+                         "value": (50.0 if dry else base) + rng.normal(0, 1)})
+    data = pd.DataFrame(rows)
+    res = drought_transition_baseline(data, deficit_pct=25.0, min_months=24)
+    row = res.iloc[0]
+    assert row["sufficient_history"]
+    assert 0 <= row["forecast_deficit_prob"] <= 1
+    assert np.isfinite(row["p_deficit_given_normal"])
+    short = drought_transition_baseline(data.iloc[:6], deficit_pct=25.0, min_months=24).iloc[0]
+    assert not short["sufficient_history"]
+    assert math.isnan(short["forecast_deficit_prob"])
+
+
+def test_transition_baseline_skips_gaps_between_months():
+    from kshetra.forecast import drought_transition_baseline
+    data = _monthly_series([100.0] * 12, years=3)
+    gapped = data.drop(index=[5, 6, 7, 8, 9, 10])  # remove a six-month gap
+    res = drought_transition_baseline(gapped, min_months=10)
+    assert res.iloc[0]["months_observed"] == len(gapped)
+
+
+def test_mis_loader_requires_provenance_and_comparable_schemes():
+    from kshetra.mis import load_mis_table
+    base = {"state": "Bihar", "district": "Araria", "scheme": "pmuy", "period": "2025-03-31",
+            "enrolled": 1000, "denominator": 5000, "denominator_type": "households (census 2011)", "source": "MIS export 2025-03"}
+    load_mis_table(pd.DataFrame([base]))
+    with pytest.raises(ValueError, match="source"):
+        load_mis_table(pd.DataFrame([{**base, "source": " "}]))
+    with pytest.raises(ValueError, match="not comparable"):
+        load_mis_table(pd.DataFrame([{**base, "scheme": "poshan"}]))
+    with pytest.raises(ValueError, match="non-negative"):
+        load_mis_table(pd.DataFrame([{**base, "enrolled": -5}]))
+
+
+def test_mis_vs_survey_reports_difference_and_blocks_zero_denominator():
+    from kshetra.mis import load_mis_table, mis_vs_survey
+    profiles = pd.DataFrame([{"state_raw": "Bihar", "district_raw": "Araria", "state_key": "BIHAR",
+                              "district_key": "ARARIA", "clean_cooking_fuel_pct": 40.0}])
+    rows = pd.DataFrame([
+        {"state": "Bihar", "district": "Araria", "scheme": "pmuy", "period": "2025-03-31", "enrolled": 3000,
+         "denominator": 5000, "denominator_type": "households", "source": "MIS export"},
+        {"state": "Bihar", "district": "Araria", "scheme": "pmuy", "period": "2025-06-30", "enrolled": 10,
+         "denominator": 0, "denominator_type": "none", "source": "MIS export"},
+    ])
+    out = mis_vs_survey(load_mis_table(rows), profiles)
+    ok = out[out["period"] == "2025-03-31"].iloc[0]
+    assert ok["mis_coverage_pct"] == pytest.approx(60.0)
+    assert ok["proxy_minus_mis_points"] == pytest.approx(-20.0)
+    blocked = out[out["period"] == "2025-06-30"].iloc[0]
+    assert math.isnan(blocked["mis_coverage_pct"])

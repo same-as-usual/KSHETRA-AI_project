@@ -15,6 +15,16 @@
 | **5. SchemeGap Intelligence** | Six NFHS-5 service/outcome proxies (clean fuel, sanitation, health-insurance, improved water, child stunting and female school attainment) with 4-step verification journey cards and official scheme links. | These are broad service/outcome proxies, not scheme enrollment or eligibility. Only four service-access proxies enter the budget-share scenario; nutrition/education outcomes are context only. |
 | **6. PRAGATI AI Assistant** | TF-IDF vector RAG retrieval (cosine similarity) over 707 district profiles & 6 scheme proxies, contextual peer locator map, district KPI cards, English/Hindi synthesis templates, and optional Gemini / OpenAI API synthesis. | Runs 100% offline by default using deterministic templates; optional LLM synthesis is strictly constrained to retrieved evidence chunks. |
 
+## Optional workflows (outside the dashboard)
+
+- `scripts/stac_to_environment_csv.py`: converts externally computed district zonal means plus STAC scene cloud cover into the Module 2 CSV. Rows with unusable signals are reported separately. Raster clipping is not included.
+- `scripts/check_district_geojson.py`: validates a boundary file's size and name coverage before it is bundled.
+- `kshetra.embeddings`: image-embedding change distance. Requires PyTorch and a weights file you supply; not executed in the build environment.
+- `kshetra.forecast`: per-district Markov drought-transition baseline with sample counts; requires a monthly series you supply.
+- `kshetra.mis`: validates an administrative MIS export and compares enrolment coverage with NFHS-5 proxies.
+
+These components have synthetic-data tests only. They are not yet used by the dashboard and have no validated skill metrics.
+
 ## Verified data currently in the project
 
 The repository tracks the aggregate CSV files under `data/raw/` and derived profiles under `outputs/` so a fresh clone runs out of the box:
@@ -58,7 +68,7 @@ For the polygon choropleth in Tab 1, place a GeoJSON boundary file at `data/geo/
 ```
 src/kshetra/        ingestion, crosswalk, index, model (XGBoost/HistGB), schemes, environment, verification, TF-IDF RAG
 app/                six-module Streamlit dashboard
-scripts/            boundary shapefile converter and Planetary Computer STAC metadata fetcher
+scripts/            boundary shapefile converter, GeoJSON checker, STAC metadata fetcher, STAC-to-signal bridge
 tests/              unit and real-data pipeline tests
 data/raw/           tracked NFHS-5, MPI candidate, and Census 2011 SC/ST datasets
 data/geo/           optional attributed GeoJSON boundaries

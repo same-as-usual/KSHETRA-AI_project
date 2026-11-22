@@ -130,3 +130,33 @@ def match_geojson_to_profiles(geojson: dict[str, Any], profiles: pd.DataFrame,
     matched = profile[profile["_kshetra_key"].isin(keys)].copy()
     out_geo["features"] = [f for f in out_geo["features"] if f.get("properties", {}).get("_kshetra_key") in set(matched["_kshetra_key"])]
     return out_geo, matched
+
+
+def audit_district_geojson(geojson: dict[str, Any], profiles: pd.DataFrame,
+                           district_property: str, state_property: str,
+                           file_bytes: int | None = None, max_mb: float = 3.0) -> dict[str, Any]:
+    """Report whether a supplied district boundary file can drive the Module 1 choropleth.
+
+    Checks file size, feature count, exact normalized name coverage against the profiles,
+    and features that match no profile. Nothing is repaired or guessed.
+    """
+    matched_geo, matched = match_geojson_to_profiles(geojson, profiles, district_property, state_property)
+    matched_keys = set(matched["_kshetra_key"])
+    features = geojson.get("features", [])
+    unmatched = []
+    for f in features:
+        props = f.get("properties") or {}
+        state, district = props.get(state_property), props.get(district_property)
+        key = None if state is None or district is None else f"{norm_state(state)}::{norm_name(district)}"
+        if key not in matched_keys:
+            unmatched.append(f"{state} / {district}")
+    size_mb = None if file_bytes is None else round(file_bytes / 1_000_000, 2)
+    return {
+        "feature_count": len(features),
+        "matched_profile_districts": int(len(matched)),
+        "profile_districts_without_polygon": int(len(profiles) - len(matched)),
+        "unmatched_feature_count": len(unmatched),
+        "unmatched_examples": unmatched[:20],
+        "file_size_mb": size_mb,
+        "within_size_limit": None if size_mb is None else size_mb <= max_mb,
+    }
