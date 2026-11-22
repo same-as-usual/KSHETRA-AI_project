@@ -37,22 +37,27 @@ def embedding_difference(before_rgb: np.ndarray, after_rgb: np.ndarray, extracto
     }
 
 
-def torchvision_extractor(weights_path: Path | str, image_size: int = 224) -> Extractor:
+def torchvision_extractor(weights_path: Path | str | None = None, image_size: int = 224) -> Extractor:
     """Return a callable mapping an HxWx3 uint8 RGB array to a 576-dim MobileNetV3-Small embedding.
 
-    Requires ``torch`` and ``torchvision`` and a weights file you have downloaded and verified.
+    Requires ``torch`` and ``torchvision``. With ``weights_path=None`` the official torchvision
+    ImageNet weights are fetched on first use (network access needed). A local file is loaded with
+    ``weights_only=True``; use only a state_dict you have verified.
     """
     try:
         import torch  # type: ignore[import-not-found]
         import torchvision  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError("PyTorch and torchvision are required for the CNN embedding path") from exc
-    weights = Path(weights_path)
-    if not weights.is_file():
-        raise FileNotFoundError(f"weights file not found: {weights}")
-
-    model = torchvision.models.mobilenet_v3_small(weights=None)
-    model.load_state_dict(torch.load(weights, map_location="cpu"))
+    if weights_path is None:
+        model = torchvision.models.mobilenet_v3_small(
+            weights=torchvision.models.MobileNet_V3_Small_Weights.DEFAULT)
+    else:
+        weights = Path(weights_path)
+        if not weights.is_file():
+            raise FileNotFoundError(f"weights file not found: {weights}")
+        model = torchvision.models.mobilenet_v3_small(weights=None)
+        model.load_state_dict(torch.load(weights, map_location="cpu", weights_only=True))
     model.classifier = torch.nn.Identity()  # keep pooled 576-dim features
     model.eval()
     mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
