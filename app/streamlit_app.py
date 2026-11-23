@@ -316,8 +316,46 @@ with tabs[1]:
                 x2.image(after_img, caption=f"After · {after_label or after_file.name}", use_container_width=True)
                 x3.image(compare, caption=f"Blend · after weight {blend:.0%}", use_container_width=True)
                 x4.image(cv_stats["change_heatmap_rgb"], caption="Change heatmap (terracotta = greenness loss, teal = gain)", use_container_width=True)
+                weights_path = st.text_input("Optional: path on this server to a local MobileNetV3-Small weights file (.pth). Leave blank to skip the CNN check.", key="cnn_weights").strip()
+                if weights_path:
+                    from kshetra.embeddings import embedding_difference, torchvision_extractor
+                    emb = embedding_difference(np.asarray(before_img), np.asarray(after_img), torchvision_extractor(weights_path))
+                    emb1, emb2, emb3 = st.columns(3)
+                    emb1.metric("CNN embedding L2 distance", f"{emb['l2_distance']:.3f}")
+                    emb2.metric("CNN cosine distance", "n/a" if np.isnan(emb["cosine_distance"]) else f"{emb['cosine_distance']:.4f}")
+                    emb3.metric("Embedding dimension", f"{emb['embedding_dim']}")
+                    st.caption("Generic ImageNet features with no drought or vegetation calibration. Distances depend on the weights file and image size and are not comparable across them.")
             except Exception as exc:
                 st.error(f"Could not compare uploaded images: {exc}")
+
+    with st.expander("Optional: district drought-transition baseline (needs a monthly observed series)"):
+        st.caption("CSV columns: state, district, month (YYYY-MM), value (non-negative observed monthly rainfall, mm). Districts need at least 24 months. This is a first-order Markov baseline from the district's own history, not a forecast model with validated skill.")
+        monthly_upload = st.file_uploader("Monthly observed series CSV", type=["csv"], key="monthly_csv")
+        deficit_threshold = st.number_input("Deficit threshold (% below calendar-month climatology)", min_value=1.0, max_value=100.0, value=25.0, step=1.0, key="deficit_threshold")
+        if monthly_upload:
+            try:
+                from kshetra.forecast import drought_transition_baseline
+                from kshetra.text import norm_name, norm_state
+                mon = pd.read_csv(monthly_upload)
+                missing = {"state", "district", "month", "value"} - set(mon.columns)
+                if missing:
+                    raise ValueError(f"missing columns: {sorted(missing)}")
+                mon["_state_key"] = mon["state"].map(norm_state)
+                mon["district_key"] = mon["_state_key"] + "::" + mon["district"].map(norm_name)
+                labels = mon.drop_duplicates("district_key").set_index("district_key")[["state", "district"]]
+                result = drought_transition_baseline(mon, deficit_pct=float(deficit_threshold))
+                result["state"] = result["district_key"].map(labels["state"])
+                result["district"] = result["district_key"].map(labels["district"])
+                shown = result[["state", "district", "months_observed", "sufficient_history", "latest_month",
+                                "latest_state_deficit", "p_deficit_given_deficit", "p_deficit_given_normal",
+                                "forecast_deficit_prob", "n_transitions_from_state"]]
+                b1, b2 = st.columns(2)
+                b1.metric("Districts with sufficient history", f"{int(result['sufficient_history'].sum()):,}")
+                b2.metric("Districts evaluated", f"{len(result):,}")
+                st.dataframe(shown.sort_values("forecast_deficit_prob", ascending=False), use_container_width=True, hide_index=True)
+                st.caption("forecast_deficit_prob is the historical frequency of deficit months that followed the district's latest state. Check n_transitions_from_state before reading it; small counts are unreliable.")
+            except Exception as exc:
+                st.error(f"Monthly series rejected: {exc}")
 
 # MODULE 3 — Explainable AI
 with tabs[2]:
@@ -472,6 +510,23 @@ with tabs[4]:
     st.caption("NFHS-5 reference period is 2019–21. Proxies do not establish scheme coverage or eligibility. Update with current administrative data before operational planning.")
 
 # MODULE 6 — PRAGATI Assistant
+with tabs[4]:
+    with st.expander("Optional: compare an administrative MIS export with the NFHS-5 proxy"):
+        st.caption("Required columns: state, district, scheme, period (YYYY-MM), enrolled, denominator, denominator_type, source. Scheme keys: " + ", ".join(s.key for s in SCHEME_PROXIES if s.planner_eligible) + ". MIS and NFHS-5 use different definitions and periods, so a gap is a field-verification prompt, not a finding.")
+        mis_upload = st.file_uploader("MIS enrolment CSV (with provenance columns)", type=["csv"], key="mis_csv")
+        if mis_upload:
+            try:
+                from kshetra.mis import load_mis_table, mis_vs_survey
+                mis_out = mis_vs_survey(load_mis_table(pd.read_csv(mis_upload)), profiles)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("MIS rows compared", f"{len(mis_out):,}")
+                m2.metric("Exact district profile matches", f"{int(mis_out['profile_match'].sum()):,}")
+                m3.metric("Rows with coverage above 100%", f"{int(mis_out['mis_coverage_over_100'].sum()):,}")
+                st.dataframe(mis_out, use_container_width=True, hide_index=True)
+                st.caption("Coverage above 100% usually means the denominator is out of date or the wrong type. Check the source before interpreting it.")
+            except Exception as exc:
+                st.error(f"MIS table rejected: {exc}")
+
 with tabs[5]:
     st.subheader("PRAGATI · evidence-grounded district assistant (TF-IDF RAG)")
     st.caption("TF-IDF vector retrieval over the 707 district profiles and 6 programme-proxy definitions paired with grounded English/Hindi synthesis templates. No external API key or hallucinated claims.")

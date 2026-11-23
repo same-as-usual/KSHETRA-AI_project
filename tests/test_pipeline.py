@@ -572,3 +572,52 @@ def test_mis_vs_survey_reports_difference_and_blocks_zero_denominator():
     assert ok["proxy_minus_mis_points"] == pytest.approx(-20.0)
     blocked = out[out["period"] == "2025-06-30"].iloc[0]
     assert math.isnan(blocked["mis_coverage_pct"])
+
+
+def test_zero_climatology_zero_rain_is_zero_anomaly_not_missing():
+    import pandas as pd
+    from kshetra.forecast import monthly_anomalies
+    data = pd.DataFrame({
+        "district_key": ["d", "d", "d"],
+        "month": ["2020-01", "2021-01", "2020-06"],
+        "value": [0.0, 0.0, 10.0],
+    })
+    out = monthly_anomalies(data)
+    jan = out[out["_cal_month"] == 1]
+    assert (jan["anomaly_pct"] == 0.0).all(), jan
+    assert out["anomaly_pct"].notna().all(), out
+
+
+def test_mis_vs_survey_matches_row_by_row_and_flags_duplicate_profiles():
+    import numpy as np
+    import pandas as pd
+    from kshetra.mis import mis_vs_survey
+    from kshetra.schemes import SCHEME_PROXIES
+    scheme = next(s for s in SCHEME_PROXIES if s.planner_eligible)
+    profiles = pd.DataFrame({
+        "state_key": ["BIHAR", "BIHAR", "BIHAR"],
+        "district_key": ["ARARIA", "PATNA", "PATNA"],
+        "state_raw": ["Bihar"] * 3, "district_raw": ["Araria", "Patna", "Patna"],
+        scheme.nfhs_indicator: [40.0, 55.0, 60.0],
+    })
+    mis = pd.DataFrame({
+        "state": ["Bihar", "Bihar"], "district": ["Araria", "Patna"], "scheme": [scheme.key, scheme.key],
+        "period": ["2025-03", "2025-03"], "enrolled": [30, 50], "denominator": [100, 0],
+        "denominator_type": ["households", "households"], "source": ["test", "test"],
+    })
+    out = mis_vs_survey(mis, profiles)
+    araria = out[out["district"] == "Araria"].iloc[0]
+    patna = out[out["district"] == "Patna"].iloc[0]
+    assert araria["profile_match"] and araria["nfhs_proxy_pct"] == 40.0
+    assert abs(araria["mis_coverage_pct"] - 30.0) < 1e-9
+    assert abs(araria["proxy_minus_mis_points"] - 10.0) < 1e-9
+    assert not patna["profile_match"] and np.isnan(patna["nfhs_proxy_pct"])
+    assert np.isnan(patna["mis_coverage_pct"])
+
+
+def test_torchvision_loader_uses_weights_only_and_optional_path():
+    import inspect
+    from kshetra import embeddings
+    src = inspect.getsource(embeddings.torchvision_extractor)
+    assert "weights_only=True" in src
+    assert "weights_path: Path | str | None = None" in src

@@ -56,20 +56,40 @@ def mis_vs_survey(mis: pd.DataFrame, profiles: pd.DataFrame) -> pd.DataFrame:
         p["state_key"] = p["state_raw"].map(norm_state)
     if "district_key" not in p:
         p["district_key"] = p["district_raw"].map(norm_name)
-    rows = []
-    for r in valid.itertuples(index=False):
-        scheme = _SERVICE_SCHEMES[r.scheme]
-        match = p[(p["state_key"] == r.state_key) & (p["district_key"] == r.district_key)]
-        survey = float(match[scheme.nfhs_indicator].iloc[0]) if len(match) == 1 else float("nan")
-        mis_cov = 100.0 * r.enrolled / r.denominator if r.comparable else float("nan")
-        rows.append({
-            "state": r.state, "district": r.district, "scheme_key": r.scheme,
-            "period": r.period.date().isoformat(), "mis_enrolled": r.enrolled,
-            "mis_denominator": r.denominator, "denominator_type": r.denominator_type,
-            "mis_coverage_pct": mis_cov, "nfhs_proxy_pct": survey,
-            "proxy_minus_mis_points": survey - mis_cov if np.isfinite(mis_cov) and np.isfinite(survey) else float("nan"),
-            "profile_match": len(match) == 1,
-            "mis_coverage_over_100": bool(mis_cov > 100) if np.isfinite(mis_cov) else False,
-            "source": r.source,
-        })
-    return pd.DataFrame(rows)
+    v = valid.copy()
+    v["scheme_key"] = v["scheme"]
+    v["_survey_col"] = v["scheme"].map(lambda k: _SERVICE_SCHEMES[k].nfhs_indicator)
+    keys = p[["state_key", "district_key"]].copy()
+    keys["_n"] = 1
+    counts = keys.groupby(["state_key", "district_key"])["_n"].sum().rename("profile_rows").reset_index()
+    # Wide lookup: one value per (state, district, scheme) using each scheme's own NFHS column.
+    long = []
+    for key in sorted(set(v["scheme"])):
+        scheme = _SERVICE_SCHEMES[key]
+        if scheme.nfhs_indicator not in p.columns:
+            raise ValueError(f"profile column missing for scheme {key}: {scheme.nfhs_indicator}")
+        part = p[["state_key", "district_key", scheme.nfhs_indicator]].rename(
+            columns={scheme.nfhs_indicator: "nfhs_proxy_pct"})
+        part["scheme"] = key
+        long.append(part)
+    lookup = pd.concat(long, ignore_index=True)
+    merged = v.merge(counts, on=["state_key", "district_key"], how="left")
+    merged = merged.merge(lookup, on=["state_key", "district_key", "scheme"], how="left")
+    merged["profile_rows"] = merged["profile_rows"].fillna(0).astype(int)
+    merged["profile_match"] = merged["profile_rows"].eq(1)
+    merged.loc[~merged["profile_match"], "nfhs_proxy_pct"] = np.nan
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mis_cov = np.where(merged["comparable"], 100.0 * merged["enrolled"] / merged["denominator"], np.nan)
+    merged["mis_coverage_pct"] = mis_cov
+    survey = merged["nfhs_proxy_pct"].to_numpy(dtype=float)
+    merged["proxy_minus_mis_points"] = np.where(np.isfinite(mis_cov) & np.isfinite(survey), survey - mis_cov, np.nan)
+    merged["mis_coverage_over_100"] = np.where(np.isfinite(mis_cov), mis_cov > 100, False).astype(bool)
+    out = pd.DataFrame({
+        "state": merged["state"], "district": merged["district"], "scheme_key": merged["scheme"],
+        "period": merged["period"].dt.date.map(lambda d: d.isoformat()), "mis_enrolled": merged["enrolled"],
+        "mis_denominator": merged["denominator"], "denominator_type": merged["denominator_type"],
+        "mis_coverage_pct": merged["mis_coverage_pct"], "nfhs_proxy_pct": merged["nfhs_proxy_pct"],
+        "proxy_minus_mis_points": merged["proxy_minus_mis_points"], "profile_match": merged["profile_match"],
+        "mis_coverage_over_100": merged["mis_coverage_over_100"], "source": merged["source"],
+    })
+    return out.reset_index(drop=True)

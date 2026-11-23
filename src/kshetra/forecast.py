@@ -32,7 +32,13 @@ def monthly_anomalies(data: pd.DataFrame, district_col: str = "district_key",
     out[value_col] = pd.to_numeric(out[value_col], errors="coerce")
     out["_cal_month"] = out["_period"].dt.month
     clim = out.groupby([district_col, "_cal_month"])[value_col].transform("mean")
-    out["anomaly_pct"] = np.where(clim > 0, 100.0 * (out[value_col] - clim) / clim, np.nan)
+    obs = out[value_col]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pct = 100.0 * (obs - clim) / clim
+    # Zero climatology and zero observation is a normal dry month: 0% anomaly, not a missing value.
+    # Mean climatology cannot be zero when any non-negative observation in that group is positive.
+    pct = np.where((clim == 0) & (obs == 0), 0.0, pct)
+    out["anomaly_pct"] = np.where(clim >= 0, pct, np.nan)
     return out.sort_values([district_col, "_period"]).reset_index(drop=True)
 
 

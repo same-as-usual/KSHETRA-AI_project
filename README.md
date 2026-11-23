@@ -23,7 +23,7 @@
 - `kshetra.forecast`: per-district Markov drought-transition baseline with sample counts; requires a monthly series you supply.
 - `kshetra.mis`: validates an administrative MIS export and compares enrolment coverage with NFHS-5 proxies.
 
-These components have synthetic-data tests only. They are not yet used by the dashboard and have no validated skill metrics.
+The dashboard exposes three of these as optional, off-by-default sections: the CNN embedding check (Module 2 image panel, needs a local weights file path), the monthly drought-transition baseline (Module 2, needs a monthly CSV), and the MIS comparison (Module 5, needs an MIS CSV). The zonal bridge is a command-line step only. Every component has synthetic-data tests only and no validated skill metrics.
 
 ## Verified data currently in the project
 
@@ -41,7 +41,7 @@ See `docs/SOURCES.md` and `docs/DATA_QUALITY.md` for source links, caveats, and 
 - **Explainable composite:** 11 NFHS indicators are direction-normalized and z-scored, averaged into living-standards, education, and health/nutrition domains, then equally averaged. Indicator contributions sum exactly to the composite.
 - **Screening tiers:** percentile-based quartiles (`Very high`, `High`, `Moderate`, `Lower`); these are relative ranks within this dataset, not policy thresholds.
 - **Confidence flag & gauge:** derived from indicator completeness and NFHS sample size; it is not predictive confidence.
-- **Cross-check model:** `xgboost.XGBRegressor` (when `xgboost` is installed, with automatic fallback to scikit-learn `HistGradientBoostingRegressor`), predicting the supplied MPI HCR from NFHS-5 indicators. Five-fold CV with XGBoost: **R² = 0.849**, **MAE = 5.02 percentage points**, **Spearman ρ = 0.89** on 629 districts (HistGradientBoosting fallback: R² = 0.844, MAE = 5.10 pp).
+- **Cross-check model:** `xgboost.XGBRegressor` (when `xgboost` is installed, with automatic fallback to scikit-learn `HistGradientBoostingRegressor`), predicting the supplied MPI HCR from NFHS-5 indicators. Five-fold CV on the bundled v8 data with XGBoost: **R² = 0.845**, **MAE = 5.12 percentage points**, **Spearman ρ = 0.89** on 629 districts (HistGradientBoosting fallback: R² = 0.844, MAE = 5.10 pp).
 - **Clusters:** K-Means descriptive profiles on the three domain scores.
 
 See `docs/VIVA_ALIGNMENT.md` for a detailed presentation and defense guide.
